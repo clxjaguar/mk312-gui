@@ -1,4 +1,13 @@
-import os, sys, glob, time
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# sudo apt-get install python3-pip python3-qtpy
+
+# socat pty,link=mk312,raw tcp:192.168.0.197:8843
+
+VERSION = '0.03b'
+
+import os, sys, glob, time, socket, subprocess, re
 import buttshock.et312
 import fcntl
 
@@ -35,7 +44,6 @@ if pipInstallRan:
 
 try:
 	# sudo apt-get install python3-pyqt5
-	# ~ raise("Uncomment this line is to want to force fallback to PyQt4 for testing")
 	from PyQt5.QtGui import *
 	from PyQt5.QtCore import *
 	from PyQt5.QtWidgets import *
@@ -43,10 +51,15 @@ try:
 	print("Using PyQt5")
 except:
 	# sudo apt-get install python-qtpy python3-qtpy
-	from PyQt4.QtGui import *
-	from PyQt4.QtCore import *
-	PYQT_VERSION = 4
-	print("Using PyQt4")
+	try:
+		from PyQt4.QtGui import *
+		from PyQt4.QtCore import *
+		PYQT_VERSION = 4
+		print("Using PyQt4")
+	except:
+		sys.stderr.write("Error: PyQt seems to be missing!\n")
+		sys.stderr.write("Please type: sudo apt install python3-qtpy\n")
+		exit()
 
 class BoxWorker(QObject):
 	CLOSED = 0
@@ -68,25 +81,38 @@ class BoxWorker(QObject):
 	             'current_sense': 0x4060, 'multiadjust_value': 0x4061, 'multiadjust_scaled': 0x420d,
                  'multiadjust_min': 0x4086, 'multiadjust_max': 0x4087, 'psu_voltage': 0x4062,
                  'battery_voltage': 0x4063, 'battery_voltage_boot': 0x4203, 'channel_a_level': 0x4064,
-                 'channel_b_level': 0x4065, 'current_mode': 0x407b, 'power_level_range': 0x41f4,
-                 'user_modes_loaded': {'addr': 0x41f3, 'offset': 0x87}, 'adc_disable': {'addr': 0x400f, 'bit': 0}, 'box_version':0x00fc, 'v1':0x00fd, 'v2':0x00fe, 'v3':0x00ff}
+                 'channel_b_level': 0x4065, 'power_level_range': 0x41f4,
+                 'user_modes_loaded': {'addr': 0x41f3, 'offset': 0x87}, 'adc_disable': {'addr': 0x400f, 'bit': 0},
+                 'box_version':0x00fc, 'v1':0x00fd, 'v2':0x00fe, 'v3':0x00ff, 'com_cipher_key':0x4213,
+                 'current_mode': 0x407b, 'channel_a_split_mode': 0x41f5, 'channel_b_split_mode': 0x41f6, 'current_random_mode': 0x4074}
 
+	boxNetworkAddressAutoDetected = pyqtSignal(str)
 	commUpdated = pyqtSignal()
 	statusUpdated = pyqtSignal(int, str)
 	modeChanged = pyqtSignal(int)
 	updatePowerRangeLevel = pyqtSignal(int)
 	advancedParamsUpdated = pyqtSignal()
+	potsOverrideUpdated = pyqtSignal(bool)
 
 	def __init__(self):
 		QObject.__init__(self)
 		self.box = None
 		self.state = self.CLOSED
 		self.portName = None
+		self.socatRedirector = None
 
 	def open(self, portName):
-		self.portName = portName
+		if re.search('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', portName):
+			ip = portName
+			self.portName = "/tmp/ip_"+ip
+			self.socatRedirector = SocatRedirector(target=ip+':8843', localDevice=self.portName)
+		else:
+			self.portName = portName
 
 	def close(self):
+		if self.socatRedirector:
+			self.socatRedirector.stop()
+			# ~ self.socatRedirector = None
 		self.portName = None
 
 	def stop(self):
@@ -104,59 +130,33 @@ class BoxWorker(QObject):
 		else:
 			self.registersToWrite[name] = value
 
-	def storeParamValue(self, name):
-		if type(self.registers[name]) == dict:
-			register = self.registers[name]['addr']
-			if 'bit' in self.registers[name]:
-				value = self.box.read(register) & (1 << bit)
+	def discover(self, timeout=0.5):
+		UDP_DISCOVERY_PORT = 8842
+		message = b"ICQ-MK312"
 
-			elif 'offset' in self.registers[name]:
-				offset = self.registers[name]['offset']
-				value = self.box.read(register) - offset
-		else:
-			register = self.registers[name]
-			value = self.box.read(register)
+		hosts = set()
+		server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+		server.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+		server.settimeout(timeout)
+		server.sendto(message, ('255.255.255.255', UDP_DISCOVERY_PORT))
+		t = time.time()
 
-		self.paramsValues[name] = value
-		return value
+		try:
+			while(True):
+				data, addr = server.recvfrom(1024)
+				elapsed_ms = 1000 * (time.time() - t)
+				print("%f.2 (%.2fms) %s: %s (%s)" % (time.time(), elapsed_ms, addr[0], data, '.'.join(map(str, data))))
+				if addr[1] == UDP_DISCOVERY_PORT:
+					hosts.add(addr[0])
 
-	def writeRegistersToBox(self):
-		for i, name in enumerate(self.registersToWrite.copy()):
-			if type(self.registers[name]) == dict:
-				addr = self.registers[name]['addr']
-				if 'bit' in self.registers[name]:
-					bit = self.registers[name]['bit']
-					value = self.box.read(addr)
-					value&= ~(1 << bit)
-					if self.registersToWrite[name]:
-						value|= 1 << bit
-				else:
-					value = self.registersToWrite[name]
-			else:
-				addr = self.registers[name]
-				value = self.registersToWrite[name]
+		except socket.timeout:
+			pass
 
-			print(addr, [value])
-			if name == 'current_mode' and self.modes[value] == "None":
-				value = 0x90
-				# so let's get it into a blank empty mode. easiest way is calltable 18
-				# ~ self.box.write(0x4078, [0x90]) # mode 90 doesn't exist
-				# ~ et312.write(0x4070, [18]) # execute mode 90
-				# ~ while (et312.read(0x4070) != 0xff):
-					# ~ pass
-				# ~ time.sleep(0.018)
-			self.box.write(addr, [value])
-			if name == 'current_mode':
-				self.box.write(0x4070, [0x4, 0x12])
-				time.sleep(0.018)
-			elif name.startswith("advparam_"):
-				self.box.write(0x4070, [0x20])
-				time.sleep(0.018)
+		except Exception as e:
+			raise(e)
+			print(str(e))
 
-
-			del self.registersToWrite[name]
-			if i > 3:
-				break
+		return hosts
 
 	def run(self):
 		print("Starting BoxWorker.run()")
@@ -164,24 +164,14 @@ class BoxWorker(QObject):
 		self.registersToWrite = {}
 		self.errorCounter = 0
 
-		def overWriteDisplay(text):
-			""" overwrite name of current mode with spaces, then display text on it """
-			self.box.write(0x4180, [0x64])
-			self.box.write(0x4070, [0x15])
-			while (self.box.read(0x4070) != 0xff):
-				pass
-
-			for pos, char in enumerate(text):
-				self.box.write(0x4180, [ord(char),pos+8])
-				self.box.write(0x4070, [0x13])
-				while (self.box.read(0x4070) != 0xff):
-					pass
-
 		while(self.state != self.EXITING):
 			if self.state == self.CLOSED:
 				if self.portName != None:
 					self.state = self.OPENING
 					continue
+				else:
+					for addr in self.discover():
+						self.boxNetworkAddressAutoDetected.emit(addr)
 				time.sleep(0.5)
 
 			elif self.state == self.CLOSING:
@@ -212,8 +202,8 @@ class BoxWorker(QObject):
 						fcntl.flock(self.box.port.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 						self.box.perform_handshake()
 						self.state = self.CONNECTED
-						self.statusUpdated.emit(1, "Connected and synced!")
 						self.errorCounter = 0
+
 						self.storeParamValue("battery_voltage_boot")
 
 						v = self.storeParamValue("power_level_range")
@@ -230,20 +220,38 @@ class BoxWorker(QObject):
 								programblockstart = 0x8100+programlookup
 							print("\tUser %d is module 0x%02x\t: 0x%04x (eeprom)"%(i+1,startmodule,programblockstart))
 
-						overWriteDisplay("Remote")
+						self.storeParamValue("box_version")
+						self.storeParamValue("v1")
+						self.storeParamValue("v2")
+						self.storeParamValue("v3")
+						self.potsOverrideUpdated.emit(self.storeParamValue('adc_disable'))
+
+
+						self.storeParamValue('advparam_ramp_level')
+						self.storeParamValue('advparam_ramp_time')
+						self.storeParamValue('advparam_depth')
+						self.storeParamValue('advparam_tempo')
+						self.storeParamValue('advparam_frequency')
+						self.storeParamValue('advparam_effect')
+						self.storeParamValue('advparam_width')
+						self.storeParamValue('advparam_pace')
+						self.advancedParamsUpdated.emit()
+
+						self.statusUpdated.emit(1, "Connected and synced!")
 						lastMode = None
 
 				except Exception as e:
 					self.errorCounter+=1
 					msg = str(e)
-					if self.errorCounter >= 4:
-						if "received no reply" in msg:
-							msg+="\nCan't sync... Is the box connected and powered on?"
-						else:
-							msg+="\nCan't sync... Try to turn off the box and on again?"
-						self.statusUpdated.emit(3, msg)
-					else:
+					if self.errorCounter < 4:
 						self.statusUpdated.emit(2, msg)
+					else:
+						msg+="\nCannot syncronize with mk312... "
+						if "received no reply" in msg:
+							msg+="Is the box connected and powered on?"
+						else:
+							msg+="Try to turn off the box and on again?"
+						self.statusUpdated.emit(3, msg)
 					time.sleep(.2)
 
 			elif self.state == self.CONNECTED:
@@ -254,19 +262,32 @@ class BoxWorker(QObject):
 				try:
 					self.writeRegistersToBox()
 
-					self.storeParamValue("current_sense") # ADC0
-					# ~ self.storeParamValue("multiadjust_value") # ADC1
+					# ~ self.storeParamValue("current_sense") # ADC0
 					self.storeParamValue("multiadjust_scaled")
 
 					currentmode = self.storeParamValue("current_mode")
 					if currentmode != lastMode:
 						self.storeParamValue("multiadjust_min")
 						self.storeParamValue("multiadjust_max")
+
 						self.modeChanged.emit(currentmode)
 						lastMode = currentmode
 
 						v = self.storeParamValue("power_level_range")
 						self.updatePowerRangeLevel.emit(v)
+
+
+						if (currentmode == 0x7f):
+							self.storeParamValue("channel_a_split_mode")
+							self.storeParamValue("channel_b_split_mode")
+						if (currentmode == 0x80):
+							self.storeParamValue("current_random_mode")
+							# ~ timeleft = self.box.read(0x4075) - self.box.read(0x406a)
+							# ~ if (timeleft<0):
+								# ~ timeleft+=256
+							# ~ print("\tTime until change mode\t: {0:#d} seconds ".format(int(timeleft/1.91)))
+						# ~ print("\tMode has been running\t: {0:#d} seconds".format(int((self.box.read(0x4089)+self.box.read(0x408a)*256)*1.048)))
+
 
 					self.storeParamValue("psu_voltage") # ADC2
 					self.storeParamValue("battery_voltage") # ADC3
@@ -274,37 +295,19 @@ class BoxWorker(QObject):
 					self.storeParamValue("channel_a_level") # ADC4
 					self.storeParamValue("channel_b_level") # ADC5
 
-					self.storeParamValue("box_version")
-					self.storeParamValue("v1")
-					self.storeParamValue("v2")
-					self.storeParamValue("v3")
-
-					self.storeParamValue('advparam_ramp_level')
-					self.storeParamValue('advparam_ramp_time')
-					self.storeParamValue('advparam_depth')
-					self.storeParamValue('advparam_tempo')
-					self.storeParamValue('advparam_frequency')
-					self.storeParamValue('advparam_effect')
-					self.storeParamValue('advparam_width')
-					self.storeParamValue('advparam_pace')
-					self.advancedParamsUpdated.emit()
-
-					# ~ if currentmode in self.modes:
-						# ~ print("Current Mode\t\t\t: "+self.modes[currentmode])
-					# ~ else:
-						# ~ print("Current Mode\t\t\t: "+str(currentmode))
-					# ~ if (currentmode == 0x7f):
-						# ~ print("\tSplit Mode A\t\t: "+self.modes[self.box.read(0x41f5)])
-						# ~ print("\tSplit Mode B\t\t: "+self.modes[self.box.read(0x41f6)])
-					# ~ if (currentmode == 0x80):
-						# ~ print("\tCurrent Random Mode\t: "+self.modes[self.box.read(0x4074)])
-						# ~ timeleft = self.box.read(0x4075) - self.box.read(0x406a)
-						# ~ if (timeleft<0):
-							# ~ timeleft+=256
-						# ~ print("\tTime until change mode\t: {0:#d} seconds ".format(int(timeleft/1.91)))
-					# ~ print("\tMode has been running\t: {0:#d} seconds".format(int((self.box.read(0x4089)+self.box.read(0x408a)*256)*1.048)))
 
 					self.commUpdated.emit()
+
+					# ~ self.storeParamValue('advparam_ramp_level')
+					# ~ self.storeParamValue('advparam_ramp_time')
+					# ~ self.storeParamValue('advparam_depth')
+					# ~ self.storeParamValue('advparam_tempo')
+					# ~ self.storeParamValue('advparam_frequency')
+					# ~ self.storeParamValue('advparam_effect')
+					# ~ self.storeParamValue('advparam_width')
+					# ~ self.storeParamValue('advparam_pace')
+					# ~ self.advancedParamsUpdated.emit()
+
 					self.errorCounter = 0
 				except Exception as e:
 					try:
@@ -324,7 +327,203 @@ class BoxWorker(QObject):
 			pass
 		print("BoxWorker ended")
 
+	def storeParamValue(self, name):
+		if type(self.registers[name]) == dict:
+			register = self.registers[name]['addr']
+			if 'bit' in self.registers[name]:
+				value = self.box.read(register) & (1 << self.registers[name]['bit'])
+
+			elif 'offset' in self.registers[name]:
+				offset = self.registers[name]['offset']
+				value = self.box.read(register) - offset
+		else:
+			register = self.registers[name]
+			value = self.box.read(register)
+
+		self.paramsValues[name] = value
+		return value
+
+	def overWriteDisplay(self, text, posOffset=9):
+		""" overwrite name of current mode with spaces, then display text on it """
+		self.box.write(0x4180, [0x64])
+		self.box.write(0x4070, [0x15])
+		while (self.box.read(0x4070) != 0xff):
+			pass
+
+		for pos, char in enumerate(text):
+			self.box.write(0x4180, [ord(char), pos+posOffset])
+			self.box.write(0x4070, [0x13])
+			i = 0
+			while (self.box.read(0x4070) != 0xff and i < 50):
+				i+=1
+
+	def writeRegistersToBox(self):
+		for i, name in enumerate(self.registersToWrite.copy()):
+			if type(self.registers[name]) == dict:
+				addr = self.registers[name]['addr']
+				if 'bit' in self.registers[name]:
+					bit = self.registers[name]['bit']
+					value = self.box.read(addr)
+					value&= ~(1 << bit)
+					if self.registersToWrite[name]:
+						value|= 1 << bit
+				else:
+					value = self.registersToWrite[name]
+			else:
+				addr = self.registers[name]
+				value = self.registersToWrite[name]
+
+			print(name, addr, value)
+			if name == 'current_mode' and self.modes[value] == "None":
+				value = 0x90
+				# so let's get it into a blank empty mode. easiest way is calltable 18
+				self.box.write(0x4078, [0x90]) # mode 90 doesn't exist
+				self.box.write(0x4070, [18]) # execute mode 90
+				i = 0
+				while (self.box.read(0x4070) != 0xff and i < 50):
+					i+=1
+				for base in [0x4000,0x4100]:
+					# init
+					self.box.write(base+0xa8, [0,0]) # don't increment channel intensity
+					self.box.write(base+0xa5, [128]) # A intensity mod value = min
+					self.box.write(base+0xac, [0]) # no select
+					self.box.write(base+0xb1, [0]) # rate
+					self.box.write(base+0xae, [0x64]) # freq mod
+					self.box.write(base+0xb5, [4]) # select normal parms
+					self.box.write(base+0xb7, [0xc8]) # width mod value
+					self.box.write(base+0xba, [0]) # width mod value
+					self.box.write(base+0xbe, [4]) # select normal parms
+					self.box.write(base+0x9c, [255]) # ramp off
+
+					# actuated
+					# ~ self.box.write(base+0xac, [0]) # no select
+				self.overWriteDisplay("None")
+				del self.registersToWrite[name]
+				continue
+
+			self.box.write(addr, [value])
+
+			if name == 'current_mode':
+				self.box.write(0x4070, [0x4, 0x12])
+				time.sleep(0.018)
+			elif name.startswith("advparam_"):
+				self.box.write(0x4070, [0x20])
+				time.sleep(0.018)
+
+			del self.registersToWrite[name]
+			if i > 3:
+				break
+
+
+class SocatRedirector(QObject):
+	def __init__(self, target, localDevice):
+		QObject.__init__(self)
+		self.exitRequested = False
+		self.target = target
+		self.localDevice = localDevice
+		self.thread = QThread()
+		self.thread.setObjectName("socat thread")
+		self.moveToThread(self.thread)
+		self.thread.started.connect(self.worker)
+		self.thread.start()
+		time.sleep(0.1)
+
+	def stop(self):
+		self.exitRequested = True
+		if self.proc:
+			self.proc.kill()
+
+	def worker(self):
+		while not self.exitRequested:
+			try:
+				cmd = ['socat', '-d', '-d', 'pty,link=%s,raw' % self.localDevice, 'tcp:%s' % self.target]
+				print("Running:", cmd)
+				self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=1, universal_newlines=True)
+				print("Ran:", cmd, self.proc)
+				while not self.thread.isInterruptionRequested() and not self.exitRequested:
+					line = self.proc.stdout.readline()
+					if line == "":
+						break
+					print(line)
+				print("Terminated:", cmd, self.proc)
+
+			except Exception as e:
+				print("Socat Thread Error: %s" % str(e))
+
+			try:
+				self.proc.kill()
+			except:
+				pass
+
+			time.sleep(1)
+
+		self.thread.quit()
+
+	def __del__(self):
+		self.stop()
+
 boxWorker = BoxWorker()
+
+class RegistersView(QTableWidget):
+	closed = pyqtSignal()
+
+	def __init__(self):
+		QWidget.__init__(self)
+		self.initUI()
+
+	def closeEvent(self, event):
+		self.closed.emit()
+		event.accept()
+
+	def initUI(self):
+		self.setStyleSheet('QLabel { background: white; }')
+		self.verticalHeader().setDefaultSectionSize(self.verticalHeader().minimumSectionSize())
+		self.verticalHeader().hide()
+		self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+		self.setColumnCount(2)
+		self.setHorizontalHeaderLabels(("Name", "Value"))
+		self.setColumnWidth(0, 200)
+		self.setColumnWidth(1, 80)
+		# ~ self.setStretchLastSection(True)
+
+		self.setWindowTitle(u"Box Registers")
+		self.refresh()
+		w = self.verticalHeader().width() + self.horizontalHeader().length() + self.frameWidth()*2 + self.verticalScrollBar().sizeHint().width()
+		self.setMinimumWidth(w)
+		self.resize(w, 600)
+
+		self.show()
+		self.timer = QTimer()
+		self.timer.timeout.connect(self.refresh)
+		self.timer.start(1000)
+
+	def refresh(self):
+		# ~ parameters = {'battery_voltage_boot': 210, 'power_level_range': 2, 'user_modes_loaded': 0, 'box_version': 167, 'v1': 169, 'v2': 255, 'v3': 35, 'adc_disable': 0, 'advparam_ramp_level': 225, 'advparam_ramp_time': 20, 'advparam_depth': 215, 'advparam_tempo': 1, 'advparam_frequency': 25, 'advparam_effect': 5, 'advparam_width': 130, 'advparam_pace': 5, 'multiadjust_scaled': 229, 'current_mode': 141, 'multiadjust_min': 15, 'multiadjust_max': 255, 'psu_voltage': 125, 'battery_voltage': 165, 'channel_a_level': 0, 'channel_b_level': 0}
+
+		parameters = boxWorker.paramsValues.copy()
+		# ~ print(parameters)
+		if len(parameters) != self.rowCount():
+			self.setRowCount(len(parameters))
+			for i, parameterName in enumerate(parameters):
+
+				keyLabel = QLabel(parameterName)
+				valueLabel = QLabel(str(parameters[parameterName]))
+				valueLabel.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+
+				for label in (keyLabel, valueLabel):
+					label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+
+				keyLabel.setStyleSheet('padding-left: 3px;')
+				valueLabel.setStyleSheet('padding-right: 3px;')
+
+				self.setCellWidget(i, 0, keyLabel)
+				self.setCellWidget(i, 1, valueLabel)
+
+		else:
+			for i, parameterName in enumerate(parameters):
+				self.cellWidget(i, 1).setText(str(parameters[parameterName]))
+
 
 class GUI(QWidget):
 	def __init__(self):
@@ -340,18 +539,23 @@ class GUI(QWidget):
 		boxWorker.modeChanged.connect(self.updateMode)
 		boxWorker.updatePowerRangeLevel.connect(self.updatePowerRangeLevel)
 		self.initUI()
+		boxWorker.boxNetworkAddressAutoDetected.connect(self.serialPortPicker.addPort)
+		boxWorker.advancedParamsUpdated.connect(self.advParameters.paramsUpdate)
+		boxWorker.potsOverrideUpdated.connect(lambda state: self.potsOverrideClicked(state))
+
 		self.boxThread.start()
+
+	def closeEvent(self, event):
+		boxWorker.close()
+		if self.registersView:
+			self.registersView.close()
+		event.accept()
 
 	def initUI(self):
 		self.setStyleSheet("\
-			xQWidget#backgroundWidget { color: #cccccc; background-color: #000000; } \
-			xQWidget { color: #cccccc; background-color: #303030; } \
-			xQLabel { margin: 0px; padding: 0px; background-color: #000000; } \
 			QLabel#value { font-size: 24pt; } \
 			QLabel#label { font-size: 12pt; } \
 			QPushButton::checked#green { color: #000000; background: #00ff00; } \
-			xQPushButton { color: #ffffff; background: #303030; } \
-			xQPushButton::disabled { color: #505050; background: #121212; } \
 			QSplitter::handle:vertical   { image: none; } \
 			QSplitter::handle:horizontal { width:  2px; image: none; } \
 			QGroupBox { border: 1px solid #707070; border-radius: 6px; padding: 0px; } \
@@ -400,6 +604,11 @@ class GUI(QWidget):
 
 		layout.addStretch()
 
+		# ~ layout2 = QHBoxLayout()
+
+		# ~ layout.addLayout(layout2)
+
+		self.infos = mkQLabel("", layout, objectName='value')
 
 		channelsLayout = QHBoxLayout()
 		layout.addLayout(channelsLayout)
@@ -420,12 +629,14 @@ class GUI(QWidget):
 				mkQLabel(channelName, layout, Qt.AlignCenter | Qt.AlignTop, 'label')
 				self.setEnabled(False)
 				self.value = float('nan')
+				self.isDefaultPosition = True
 				self.writeRegisterName = writeRegisterName
 
 			def update(self, value):
 				self.value = value
-				if not self.enabled:
+				if not self.enabled or self.isDefaultPosition:
 					self.dial.setValue(value)
+					self.isDefaultPosition = False
 				self.levelLabel.setText("%02d" % (self.value / 2.56))
 
 			def dialValueChanged(self, value):
@@ -453,14 +664,16 @@ class GUI(QWidget):
 				layout.addWidget(self.dial)
 				mkQLabel("Multi Adj.", layout, Qt.AlignCenter | Qt.AlignTop, 'label')
 				self.value = float('nan')
+				self.isDefaultPosition = True
 				self.writeRegisterName = writeRegisterName
 
 			def update(self, value, valMin, valMax):
 				self.valueLabel.setText("%d" % (value))
 				self.valMin, self.valMax = valMin, valMax
 				self.dial.setRange(0, valMax - valMin)
-				if not self.enabled:
+				if not self.enabled or self.isDefaultPosition:
 					self.dial.setValue(valMax - value)
+					self.isDefaultPosition = False
 
 			def dialValueChanged(self, value):
 				if self.enabled:
@@ -483,7 +696,7 @@ class GUI(QWidget):
 				channelsLayout.addWidget(self)
 				layout = QGridLayout(self)
 				layout.setSpacing(0)
-
+				self.sliders = {}
 				# ~ self.setSizeHint()
 
 				for i, p in enumerate([("Ramp Level", 'advparam_ramp_level', 50, 100, 70),
@@ -494,33 +707,62 @@ class GUI(QWidget):
 				                       ("Effect", 'advparam_effect', 1, 100, 5),
 				                       ("Width", 'advparam_width', 70, 250, 130),
 				                       ("Pace", 'advparam_pace', 1, 100, 5)]):
-					print(p)
+
 					labelName, paramName, mini, maxi, default = p
 					slider = QSlider(Qt.Horizontal)
 					slider.paramName = paramName
+					if paramName == 'advparam_ramp_level':
+						slider.granularity = 10; slider.paramOffset = 155
+					else:
+						slider.granularity = 1;  slider.paramOffset = 0
+
 					slider.setMinimumWidth(150)
-					slider.setRange(mini, maxi)
-					slider.setValue(default)
+					slider.setRange(int(mini/slider.granularity), int(maxi/slider.granularity))
+					slider.setValue(int(default/slider.granularity))
 					slider.valueChanged.connect(self.valueChanged)
-					slider.valueLabel = QLabel(str(slider.value()))
+					slider.valueLabel = QLabel(str(slider.value()*slider.granularity))
 					layout.addWidget(QLabel(labelName), i, 0)
 					layout.addWidget(slider, i, 2)
 					layout.addWidget(slider.valueLabel, i, 3)
+					self.sliders[paramName] = slider
+
 
 			def valueChanged(self, i):
 				# ~ print(self.sender().paramName, i, self.sender().valueLabel)
-				self.sender().valueLabel.setText(str(i))
-				boxWorker.setVal(self.sender().paramName, i)
+				i*=self.sender().granularity
+				self.sender().valueLabel.setText("%d" % i)
+				boxWorker.setVal(self.sender().paramName, i+self.sender().paramOffset)
 
+
+			def paramsUpdate(self):
+				for paramName in self.sliders:
+					slider = self.sliders[paramName]
+					value = boxWorker.getVal(paramName) - slider.paramOffset
+					slider.blockSignals(True)
+					slider.valueLabel.setText("%d" % value)
+					slider.setValue(int(value / slider.granularity))
+					slider.blockSignals(False)
 
 		self.channels = (ChannelWidget("A Level", 'channel_a_level'), ChannelWidget("B Level", 'channel_b_level'))
 		self.multiAdjust = MultiAdjustWidget('multiadjust_scaled')
-		# ~ self.parameters = ParametersWidget()
 		self.advParameters = AdvancedParameters()
 
 		layout2 = QHBoxLayout()
 
-		self.overridePotsBtn = mkButton("Override Pots", layout2, function=self.overridePotsClicked, setCheckable=True)
+		self.potsOverrideBtn = mkButton("Override Pots", layout2, function=self.potsOverrideClicked, setCheckable=True)
+
+		def showRegistersBtnClicked(state):
+			if state:
+				self.registersView = RegistersView()
+				self.registersView.closed.connect(lambda: self.showRegistersBtn.setChecked(False))
+			elif self.registersView != None:
+				self.registersView.close()
+				self.registersView = None
+
+		self.showRegistersBtn = mkButton("Show Registers", layout2, function=showRegistersBtnClicked, setCheckable=True)
+		self.registersView = None
+
+		layout2.addStretch()
 
 		layout2.addStretch()
 
@@ -529,7 +771,7 @@ class GUI(QWidget):
 		self.mode.insertItems(0, ['None'])
 		self.mode.currentTextChanged.connect(self.modeChanged)
 		layout2.addWidget(self.mode)
-		self.updateModes()
+		self.fillModes()
 		layout2.addStretch()
 
 		mkQLabel("Power Level", layout2, Qt.AlignCenter)
@@ -538,11 +780,13 @@ class GUI(QWidget):
 		self.powerRangeLevel.currentTextChanged.connect(self.powerRangeLevelChanged)
 		layout2.addWidget(self.powerRangeLevel)
 
+		self.batteryBar = QProgressBar()
+		layout2.addWidget(self.batteryBar)
 
 		layout.addLayout(layout2)
 
 
-		self.setWindowTitle(u"MK-312BT Remote Control v0.02")
+		self.setWindowTitle(u"MK-312 Remote Control v%s" % (VERSION))
 		self.setWindowIcon(getEmbeddedIcon())
 		self.show()
 
@@ -560,8 +804,11 @@ class GUI(QWidget):
 			color = 'none'
 		self.errorLabel.setStyleSheet("background-color: "+color+"; border: 1px solid #707070;")
 
-		self.errorLabelHideTimer.start(2000)
-		print(level, text)
+		if level <= 1: # This had been added. Unsure about this.
+			self.errorLabelHideTimer.start(2000)
+		else:
+			self.errorLabelHideTimer.stop()
+		print(time.strftime("%Y-%m-%d %H:%M:%S")+" " + text)
 
 	def hideErrorLabelTimerTimeout(self):
 		self.errorLabelHideTimer.stop()
@@ -570,18 +817,43 @@ class GUI(QWidget):
 		self.errorLabel.setStyleSheet("background-color: none;")
 
 	def boxCommUpdated(self):
-		print(boxWorker.paramsValues)
+		# ~ print(boxWorker.paramsValues)
 		self.channels[0].update(boxWorker.getVal('channel_a_level'))
 		self.channels[1].update(boxWorker.getVal('channel_b_level'))
 		self.multiAdjust.update(boxWorker.getVal('multiadjust_scaled'), boxWorker.getVal('multiadjust_min'), boxWorker.getVal('multiadjust_max'))
 
-	def overridePotsClicked(self):
-		val = self.overridePotsBtn.isChecked()
-		boxWorker.setVal('adc_disable', val)
-		for w in self.channels[0], self.channels[1], self.multiAdjust:
-			w.setEnabled(val)
 
-	def updateModes(self):
+		batteryVoltage = float(boxWorker.getVal('battery_voltage')) / 12.425
+		psuVoltage = boxWorker.getVal('psu_voltage') * 0.12
+		infos = ""
+		# ~ infos+="%s: %.0f%%\n" % ('Battery at boot', boxWorker.getVal('battery_voltage_boot') / 2.56)
+		# ~ infos+="%s: %.4fV\n" % ('Battery', batteryVoltage)
+		# ~ infos+="%s: %.4fV\n" % ('PSU', psuVoltage)
+		# ~ infos+="%s: %d"   % ('current_sense', boxWorker.getVal('current_sense'))
+
+
+		self.batteryBar.setFormat("%.1fV" % round(batteryVoltage, 1))
+		batteryBarValue = int((batteryVoltage - 11.5) * 57.14)
+		if batteryBarValue > 100: batteryBarValue = 100
+		elif batteryBarValue < 0: batteryBarValue = 0
+		# ~ if batteryBar > self.batteryBar.value():
+			# ~ self.batteryBar.setValue(self.batteryBar.value()+1)
+		# ~ elif batteryBar < self.batteryBar.value():
+			# ~ self.batteryBar.setValue(self.batteryBar.value()-1)
+		self.batteryBar.setValue(batteryBarValue)
+
+
+		self.infos.setText(infos)
+
+	def potsOverrideClicked(self, state):
+		#state = self.potsOverrideBtn.isChecked()
+		boxWorker.setVal('adc_disable', state)
+		for w in self.channels[0], self.channels[1], self.multiAdjust:
+			w.setEnabled(state)
+		self.potsOverrideBtn.setChecked(state)
+
+
+	def fillModes(self):
 		self.mode.blockSignals(True)
 		self.mode.clear()
 		modesText = []
@@ -682,8 +954,15 @@ class SerialPortPicker(QHBoxLayout):
 		try:
 			self.serialDeviceCombo.clear()
 			self.serialDeviceCombo.insertItems(0, self.listSerialPorts())
+			self.serialDeviceCombo.insertSeparator(self.serialDeviceCombo.count())
+			self.serialDeviceCombo.setCurrentIndex(-1)
 		except Exception as e:
 			QMessageBox.warning(self.parentWidget, "Serial port error", str(e))
+
+	def addPort(self, portName):
+		if portName not in [self.serialDeviceCombo.itemText(i) for i in range(self.serialDeviceCombo.count())]:
+			self.serialDeviceCombo.addItem(portName)
+			self.serialDeviceCombo.setCurrentIndex(self.serialDeviceCombo.count()-1)
 
 	def openPortClicked(self):
 		try:
