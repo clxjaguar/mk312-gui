@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# sudo apt-get install python3-pip python3-qtpy
+# sudo apt-get install python3-pip python3-qtpy socat
 
-# socat pty,link=mk312,raw tcp:192.168.0.197:8843
-
-VERSION = '0.03b'
+VERSION = '0.04'
 
 import os, sys, glob, time, socket, subprocess, re
 import buttshock.et312
@@ -110,9 +108,9 @@ class BoxWorker(QObject):
 			self.portName = portName
 
 	def close(self):
-		if self.socatRedirector:
-			self.socatRedirector.stop()
-			# ~ self.socatRedirector = None
+		# ~ if self.socatRedirector:
+			# ~ self.socatRedirector.stop()
+			# ~ #self.socatRedirector = None
 		self.portName = None
 
 	def stop(self):
@@ -176,6 +174,7 @@ class BoxWorker(QObject):
 
 			elif self.state == self.CLOSING:
 				try:
+					self.writeRegistersToBox()
 					for i in range(3):
 						try:
 							self.box.reset_key()
@@ -184,6 +183,10 @@ class BoxWorker(QObject):
 							self.statusUpdated.emit(2, str(e))
 
 					self.box.close()
+
+					if self.socatRedirector:
+						self.socatRedirector.stop()
+
 					self.state = self.CLOSED
 					self.statusUpdated.emit(1, "Port closed.")
 				except Exception as e:
@@ -310,10 +313,10 @@ class BoxWorker(QObject):
 
 					self.errorCounter = 0
 				except Exception as e:
-					try:
-						self.box.reset_key()
-					except:
-						pass
+					# ~ try:
+						# ~ self.box.reset_key()
+					# ~ except:
+						# ~ pass
 					self.errorCounter+=1
 					self.statusUpdated.emit(3, str(e))
 					if self.errorCounter % 5 == 0:
@@ -543,7 +546,26 @@ class GUI(QWidget):
 		boxWorker.advancedParamsUpdated.connect(self.advParameters.paramsUpdate)
 		boxWorker.potsOverrideUpdated.connect(lambda state: self.potsOverrideClicked(state))
 
+		try:
+			self.udpServer = UDP_ServerWorker(port=50000)
+			self.udpServer.receivedPacket.connect(self.handleUDPMessage)
+		except Exception as e:
+			QMessageBox.warning(self, "UDP REMote control port error", str(e))
+			for ch in self.channels:
+				ch.setUdpServerIsHavingProblem(True)
+
 		self.boxThread.start()
+
+	def handleUDPMessage(self, msg):
+		factor = 0
+		try:
+			if msg != '':
+				factor = float(msg)
+		except Exception as e:
+			print(str(e))
+
+		self.channels[0].setRemoteValueFactor(factor)
+		self.channels[1].setRemoteValueFactor(factor)
 
 	def closeEvent(self, event):
 		boxWorker.close()
@@ -554,15 +576,26 @@ class GUI(QWidget):
 	def initUI(self):
 		self.setStyleSheet("\
 			QLabel#value { font-size: 24pt; } \
+			QProgressBar#channel { font-size: 24px; background: transparent; border: 0px solid black; border-radius: 5px; text-align: center; } \
 			QLabel#label { font-size: 12pt; } \
 			QPushButton::checked#green { color: #000000; background: #00ff00; } \
+			QPushButton::checked#normal { color: #000000; background: #70ff70; } \
+			QPushButton::pressed#surge { color: #000000; background: #ff0000; } \
+			QPushButton::checked#surge { color: #000000; background: #ff0000; } \
+			QPushButton::checked#cut { color: #808080; background: #000000; } \
+			QPushButton::checked#remote { color: #000000; background: #1070ff; } \
 			QSplitter::handle:vertical   { image: none; } \
 			QSplitter::handle:horizontal { width:  2px; image: none; } \
 			QGroupBox { border: 1px solid #707070; border-radius: 6px; padding: 0px; } \
 		");
 		self.setObjectName("backgroundWidget")
 		layout = QVBoxLayout(self)
-		self.serialPortPicker = SerialPortPicker(self, boxWorker.open, boxWorker.close)
+		def closeFct():
+			for ch in self.channels[0], self.channels[1]:
+				ch.computeValue(0)
+				ch.clear()
+			boxWorker.close()
+		self.serialPortPicker = SerialPortPicker(self, boxWorker.open, closeFct)
 		layout.addLayout(self.serialPortPicker)
 
 		def mkQLabel(text=None, layout=None, alignment=Qt.AlignLeft, objectName=None):
@@ -604,11 +637,7 @@ class GUI(QWidget):
 
 		layout.addStretch()
 
-		# ~ layout2 = QHBoxLayout()
-
-		# ~ layout.addLayout(layout2)
-
-		self.infos = mkQLabel("", layout, objectName='value')
+		self.infos = mkQLabel("", layout)
 
 		channelsLayout = QHBoxLayout()
 		layout.addLayout(channelsLayout)
@@ -616,36 +645,150 @@ class GUI(QWidget):
 		class ChannelWidget(QGroupBox):
 			def __init__(self, channelName, writeRegisterName):
 				QGroupBox.__init__(self)
+
+				self.value = float('nan')
+				self.isDefaultPosition = True
+				self.writeRegisterName = writeRegisterName
+				self.remServerNotWorking = False
+				self.remoteControlFactor = 0.0
+
 				channelsLayout.addWidget(self)
 				layout = QVBoxLayout(self)
 				layout.setSpacing(0)
-				self.levelLabel = mkQLabel("--", layout, Qt.AlignCenter | Qt.AlignTop, 'value')
+
+				self.levelBar = QProgressBar()
+				self.levelBar.setRange(0, 255)
+				self.levelBar.setObjectName('channel')
+				self.levelBar.setFormat("")
+				layout.addWidget(self.levelBar)
+
+				layout2 = QHBoxLayout()
+				layout2.setSpacing(0)
+				layout.addLayout(layout2)
+				layout3 = QVBoxLayout()
+				layout3.setSpacing(0)
+				layout2.addLayout(layout3)
 				self.dial = QDial()
 				self.dial.valueChanged.connect(self.dialValueChanged)
 				self.dial.setNotchTarget(26)
 				self.dial.setNotchesVisible(True)
 				self.dial.setRange(0, 255)
-				layout.addWidget(self.dial)
-				mkQLabel(channelName, layout, Qt.AlignCenter | Qt.AlignTop, 'label')
-				self.setEnabled(False)
-				self.value = float('nan')
-				self.isDefaultPosition = True
-				self.writeRegisterName = writeRegisterName
+				self.dial.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+				layout3.addWidget(self.dial)
 
-			def update(self, value):
+				layout4 = QVBoxLayout()
+				layout4.setSpacing(0)
+				layout2.addWidget(QLabel())
+				layout2.addLayout(layout4)
+
+				def mkBtn(s, f, l, n=None, checkable=False, checked=False):
+					b = QPushButton()
+					b.setText(s)
+					if checkable or checked:
+						b.setCheckable(True)
+						b.clicked.connect(f)
+					else:
+						b.isPressed=False
+						def fct():
+							b.isPressed=True
+							f()
+						b.pressed.connect(fct)
+
+						def fct():
+							b.isPressed=False
+							f()
+						b.released.connect(fct)
+
+					if checked:
+						b.setChecked(True)
+					if n:
+						b.setObjectName(n)
+					b.setEnabled(False)
+
+					l.addWidget(b)
+					return b
+
+				self.btnSurge  = mkBtn("+10%!", self.dialValueChanged, layout4, 'surge')
+				self.btnNorm   = mkBtn("NRM", lambda s: self.buttonClicked(self.btnNorm, s), layout4, 'normal', checkable=True)
+				self.btnRemote = mkBtn("REM", lambda s: self.buttonClicked(self.btnRemote, s), layout4, 'remote', checkable=True)
+				self.btnCut    = mkBtn("CUT", lambda s: self.buttonClicked(self.btnCut, s), layout4, 'cut', checkable=True)
+				self.lastCheckedButton = self.btnCut
+				mkQLabel(channelName, layout3, Qt.AlignCenter | Qt.AlignTop, 'label')
+				self.setEnabled(False)
+
+			def setUdpServerIsHavingProblem(self, state):
+				self.remServerNotWorking = state
+
+			def buttonClicked(self, btn=None, state=None):
+				if state:
+					for b in self.btnSurge, self.btnNorm, self.btnRemote, self.btnCut:
+						if b != btn and b.isChecked():
+							b.setChecked(False)
+							self.lastCheckedButton = b
+				else:
+					self.lastCheckedButton.setChecked(True)
+					self.lastCheckedButton = btn
+
+				self.dialValueChanged()
+
+			def setRemoteValueFactor(self, factor):
+				self.remoteControlFactor = float(factor)
+				if self.remoteControlFactor < 0:
+					self.remoteControlFactor = 0
+				elif self.remoteControlFactor > 2:
+					self.remoteControlFactor = 2
+
+				if self.btnRemote.isChecked():
+					self.dialValueChanged()
+
+			def update(self, value): #todo: change that name
 				self.value = value
 				if not self.enabled or self.isDefaultPosition:
 					self.dial.setValue(value)
 					self.isDefaultPosition = False
-				self.levelLabel.setText("%02d" % (self.value / 2.56))
+				if not self.enabled:
+					self.levelBar.setValue(self.value)
+				self.levelBar.setFormat("%02d" % (self.value / 2.56))
 
-			def dialValueChanged(self, value):
+			def clear(self):
+				self.levelBar.setValue(0)
+				self.levelBar.setFormat("")
+
+			def dialValueChanged(self): #todo: change that name
+				value = self.dial.value()
+				self.computeValue(value)
+
+			def computeValue(self, value):
+				if self.btnRemote.isChecked():
+					value*=self.remoteControlFactor
+				if self.btnSurge.isPressed:
+					value+=25.5
+				if self.btnCut.isChecked():
+					value = 0
 				if self.enabled:
+					if type(value) != int: value = int(round(value))
+					if   value < 0:        value = 0
+					elif value > 255:      value = 255
+					self.levelBar.setValue(value)
 					boxWorker.setVal(self.writeRegisterName, value)
 
 			def setEnabled(self, state):
-				self.enabled = state
 				self.dial.setEnabled(state)
+				for b in self.btnSurge, self.btnNorm, self.btnRemote, self.btnCut:
+					b.blockSignals(True)
+					b.setEnabled(state)
+					if not state:
+						b.setChecked(False)
+					b.blockSignals(False)
+				if state:
+					if not self.enabled:
+						self.btnNorm.setChecked(True)
+						self.lastCheckedButton = self.btnCut
+
+				if self.remServerNotWorking:
+					self.btnRemote.setEnabled(False)
+
+				self.enabled = state
 
 		class MultiAdjustWidget(QGroupBox):
 			def __init__(self, writeRegisterName):
@@ -659,6 +802,7 @@ class GUI(QWidget):
 				self.dial.setNotchesVisible(True)
 				self.setEnabled(False)
 				self.dial.setRange(0, 255)
+				self.dial.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 				self.valMin, self.valMax = 0, 255
 				self.dial.valueChanged.connect(self.dialValueChanged)
 				layout.addWidget(self.dial)
@@ -682,13 +826,6 @@ class GUI(QWidget):
 			def setEnabled(self, state):
 				self.enabled = state
 				self.dial.setEnabled(state)
-
-		# ~ class ParametersWidget(QGroupBox):
-			# ~ def __init__(self):
-				# ~ QGroupBox.__init__(self)
-				# ~ channelsLayout.addWidget(self)
-				# ~ layout = QVBoxLayout(self)
-				# ~ layout.setSpacing(0)
 
 		class AdvancedParameters(QGroupBox):
 			def __init__(self):
@@ -825,7 +962,7 @@ class GUI(QWidget):
 
 		batteryVoltage = float(boxWorker.getVal('battery_voltage')) / 12.425
 		psuVoltage = boxWorker.getVal('psu_voltage') * 0.12
-		infos = ""
+		# ~ infos = ""
 		# ~ infos+="%s: %.0f%%\n" % ('Battery at boot', boxWorker.getVal('battery_voltage_boot') / 2.56)
 		# ~ infos+="%s: %.4fV\n" % ('Battery', batteryVoltage)
 		# ~ infos+="%s: %.4fV\n" % ('PSU', psuVoltage)
@@ -843,7 +980,7 @@ class GUI(QWidget):
 		self.batteryBar.setValue(batteryBarValue)
 
 
-		self.infos.setText(infos)
+		# ~ self.infos.setText(infos)
 
 	def potsOverrideClicked(self, state):
 		#state = self.potsOverrideBtn.isChecked()
@@ -909,16 +1046,21 @@ class SerialPortPicker(QHBoxLayout):
 
 		self.serialDeviceCombo = QComboBox()
 		self.serialDeviceCombo.setEditable(True)
-		self.refreshSerial()
+		self.serialDeviceCombo.currentTextChanged.connect(self.serialDeviceChanged)
 		self.addWidget(self.serialDeviceCombo)
 
 		self.openBtn = QPushButton("Open")
+		self.openBtn.setDisabled(True)
 		self.openBtn.clicked.connect(self.openPortClicked)
 		self.addWidget(self.openBtn)
 		self.closeBtn = QPushButton("Close")
 		self.closeBtn.clicked.connect(self.closePortClicked)
 		self.closeBtn.setDisabled(True)
 		self.addWidget(self.closeBtn)
+		self.refreshSerial()
+
+	def serialDeviceChanged(self, text):
+		self.openBtn.setDisabled(False if text.strip() != "" else True)
 
 	def listSerialPorts(self):
 		""" Lists serial port names
@@ -984,6 +1126,37 @@ class SerialPortPicker(QHBoxLayout):
 		self.serialDeviceCombo.setDisabled(False)
 		self.openBtn.setDisabled(False)
 		self.closeBtn.setDisabled(True)
+
+
+class UDP_ServerWorker(QObject):
+	receivedPacket = pyqtSignal(str)
+
+	def __init__(self, port=50000):
+		QObject.__init__(self)
+		self.port = port
+		self.receive_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+		self.receive_socket.bind(('', self.port))
+		self.serverThread = QThread()
+		self.serverThread.setObjectName("UDP Server Thread")
+		self.moveToThread(self.serverThread)
+		self.serverThread.started.connect(self.run)
+		self.serverThread.start()
+
+	def run(self):
+		self.exitLoop = False
+
+		while not self.exitLoop:
+			msg, addr = self.receive_socket.recvfrom(4096)
+			try:
+				for content in msg.decode('ascii').strip().split("\n"):
+					self.receivedPacket.emit(content)
+
+			except Exception as e:
+				print('UDP ERROR: '+str(e))
+
+
+	def stop(self):
+		self.exitLoop = True
 
 def main():
 	app = QApplication(sys.argv)
