@@ -576,7 +576,8 @@ class GUI(QWidget):
 	def initUI(self):
 		self.setStyleSheet("\
 			QLabel#value { font-size: 24pt; } \
-			QProgressBar#channel { font-size: 24px; background: transparent; border: 0px solid black; border-radius: 5px; text-align: center; } \
+			QProgressBar#channel { font-size: 24px; background-color: transparent; border: 0px solid black; text-align: center; margin-bottom: 8px; } \
+			QProgressBar::chunk#channel { background-color: QLinearGradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #000000ff, stop: 1 #ff0000ff ); } \
 			QLabel#label { font-size: 12pt; } \
 			QPushButton::checked#green { color: #000000; background: #00ff00; } \
 			QPushButton::checked#normal { color: #000000; background: #70ff70; } \
@@ -771,6 +772,8 @@ class GUI(QWidget):
 					elif value > 255:      value = 255
 					self.levelBar.setValue(value)
 					boxWorker.setVal(self.writeRegisterName, value)
+					if value > 0:
+						self.levelBar.setStyleSheet("QProgressBar::chunk#channel { background-color: QLinearGradient(x1: 0, y1: 0, x2: %f, y2: 0, stop: 0 #000000ff, stop: 1 #ff0000ff ); border-radius: 5px; }" % (255/value));
 
 			def setEnabled(self, state):
 				self.dial.setEnabled(state)
