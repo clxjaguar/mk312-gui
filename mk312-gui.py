@@ -99,6 +99,12 @@ class BoxWorker(QObject):
 		self.portName = None
 		self.socatRedirector = None
 
+		self.thread = QThread()
+		self.thread.setObjectName("BoxWorker thread")
+		self.moveToThread(self.thread)
+		self.thread.started.connect(self.worker)
+		self.thread.start()
+
 	def open(self, portName):
 		if re.search('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', portName):
 			ip = portName
@@ -156,8 +162,8 @@ class BoxWorker(QObject):
 
 		return hosts
 
-	def run(self):
-		print("Starting BoxWorker.run()")
+	def worker(self):
+		print("Starting BoxWorker.worker()")
 		self.paramsValues = {}
 		self.registersToWrite = {}
 		self.errorCounter = 0
@@ -532,11 +538,6 @@ class GUI(QWidget):
 	def __init__(self):
 		QWidget.__init__(self)
 
-		self.boxThread = QThread()
-		self.boxThread.setObjectName("BoxWorker Thread")
-		boxWorker.moveToThread(self.boxThread)
-
-		self.boxThread.started.connect(boxWorker.run)
 		boxWorker.statusUpdated.connect(self.boxStatusUpdated)
 		boxWorker.commUpdated.connect(self.boxCommUpdated)
 		boxWorker.modeChanged.connect(self.updateMode)
@@ -553,8 +554,6 @@ class GUI(QWidget):
 			QMessageBox.warning(self, "UDP REMote control port error", str(e))
 			for ch in self.channels:
 				ch.setUdpServerIsHavingProblem(True)
-
-		self.boxThread.start()
 
 	def handleUDPMessage(self, msg):
 		factor = 0
