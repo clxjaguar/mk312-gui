@@ -1,42 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+# https://github.com/clxjaguar/mk312-gui
 # sudo apt-get install python3-pip python3-qtpy socat
 
-VERSION = '0.04'
-
-import os, sys, glob, time, socket, subprocess, re
-import buttshock.et312
-import fcntl
-
-def pipRun(command):
-	print("$ "+command)
-	os.system(command)
-
-pipInstallRan = False
-def pipInstall(package):
-	if not '--pipInstallRan' in sys.argv:
-		global pipInstallRan
-		print("We want to install: "+package)
-		if not pipInstallRan:
-			pipInstallRan = True
-			pipRun(sys.executable+" -m pip install --user --upgrade pip")
-			pipRun(sys.executable+" -m pip install --user setuptools")
-		pipRun(sys.executable+" -m pip install --user "+package)
-	else:
-		raise
-
-try:
-	import serial
-except:
-	pipInstall("pyserial")
-
-if pipInstallRan:
-	cmd = sys.executable+' '+' '.join(sys.argv)+' --pipInstallRan'
-	print("Re-exec: "+cmd)
-	time.sleep(1)
-	os.system(cmd)
-	exit(-1)
+VERSION = '0.1'
+import os, sys, glob, re, time, socket, serial, fcntl
 
 # https://stpihkal.docs.buttplug.io/protocols/erostek-et312b.html#memory-layout-tables
 
@@ -66,23 +35,22 @@ class BoxWorker(QObject):
 	CLOSING = 3
 	EXITING = -1
 
-	modes = {0:"None",
-	         0x76:"Waves", 0x77:"Stroke", 0x78:"Climb", 0x79:"Combo", 0x7a:"Intense", 0x7b:"Rhythm",
-	         0x7c:"Audio1",0x7d:"Audio2", 0x7e:"Audio3", 0x7f:"Split", 0x80:"Random1", 0x81:"Random2", 0x82:"Toggle",
-	         0x83:"Orgasm",0x84:"Torment",0x85:"Phase1",0x86:"Phase2",0x87:"Phase3",
-	         0x88:"User1",0x89:"User2",0x8a:"User3",0x8b:"User4",0x8c:"User5",0x8d:"User6",0x8e:"User7"}
+	modes = {0:   "None",   0x76:"Waves",  0x77:"Stroke",  0x78:"Climb",  0x79:"Combo",  0x7a:"Intense", 0x7b:"Rhythm",
+	         0x7c:"Audio1", 0x7d:"Audio2",  0x7e:"Audio3", 0x7f:"Split",  0x80:"Random1", 0x81:"Random2", 0x82:"Toggle",
+	         0x83:"Orgasm", 0x84:"Torment", 0x85:"Phase1", 0x86:"Phase2", 0x87:"Phase3",
+	         0x88:"User1",  0x89:"User2",   0x8a:"User3",  0x8b:"User4",  0x8c:"User5",   0x8d:"User6",   0x8e:"User7"}
 
 	powerlevels = {1:"Low (1)",2:"Normal (2)",3:"High (3)"}
 
 	registers = {'advparam_ramp_level': 0x41f8, 'advparam_ramp_time': 0x41f9, 'advparam_depth': 0x41fa, 'advparam_tempo': 0x41fb,
 	             'advparam_frequency': 0x41fc, 'advparam_effect': 0x41fd, 'advparam_width': 0x41fe, 'advparam_pace': 0x41ff,
 	             'current_sense': 0x4060, 'multiadjust_value': 0x4061, 'multiadjust_scaled': 0x420d,
-                 'multiadjust_min': 0x4086, 'multiadjust_max': 0x4087, 'psu_voltage': 0x4062,
-                 'battery_voltage': 0x4063, 'battery_voltage_boot': 0x4203, 'channel_a_level': 0x4064,
-                 'channel_b_level': 0x4065, 'power_level_range': 0x41f4,
-                 'user_modes_loaded': {'addr': 0x41f3, 'offset': 0x87}, 'adc_disable': {'addr': 0x400f, 'bit': 0},
-                 'box_version':0x00fc, 'v1':0x00fd, 'v2':0x00fe, 'v3':0x00ff, 'com_cipher_key':0x4213,
-                 'current_mode': 0x407b, 'channel_a_split_mode': 0x41f5, 'channel_b_split_mode': 0x41f6, 'current_random_mode': 0x4074}
+	             'multiadjust_min': 0x4086, 'multiadjust_max': 0x4087, 'psu_voltage': 0x4062,
+	             'battery_voltage': 0x4063, 'battery_voltage_boot': 0x4203, 'channel_a_level': 0x4064,
+	             'channel_b_level': 0x4065, 'power_level_range': 0x41f4,
+	             'user_modes_loaded': {'addr': 0x41f3, 'offset': 0x87}, 'adc_disable': {'addr': 0x400f, 'bit': 0},
+	             'box_version':0x00fc, 'v1':0x00fd, 'v2':0x00fe, 'v3':0x00ff, 'com_cipher_key':0x4213,
+	             'current_mode': 0x407b, 'channel_a_split_mode': 0x41f5, 'channel_b_split_mode': 0x41f6, 'current_random_mode': 0x4074}
 
 	boxNetworkAddressAutoDetected = pyqtSignal(str)
 	commUpdated = pyqtSignal()
@@ -106,17 +74,9 @@ class BoxWorker(QObject):
 		self.thread.start()
 
 	def open(self, portName):
-		if re.search('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', portName):
-			ip = portName
-			self.portName = "/tmp/ip_"+ip
-			self.socatRedirector = SocatRedirector(target=ip+':8843', localDevice=self.portName)
-		else:
-			self.portName = portName
+		self.portName = portName
 
 	def close(self):
-		# ~ if self.socatRedirector:
-			# ~ self.socatRedirector.stop()
-			# ~ #self.socatRedirector = None
 		self.portName = None
 
 	def stop(self):
@@ -181,18 +141,7 @@ class BoxWorker(QObject):
 			elif self.state == self.CLOSING:
 				try:
 					self.writeRegistersToBox()
-					for i in range(3):
-						try:
-							self.box.reset_key()
-							break
-						except Exception as e:
-							self.statusUpdated.emit(2, str(e))
-
 					self.box.close()
-
-					if self.socatRedirector:
-						self.socatRedirector.stop()
-
 					self.state = self.CLOSED
 					self.statusUpdated.emit(1, "Port closed.")
 				except Exception as e:
@@ -206,48 +155,48 @@ class BoxWorker(QObject):
 
 				self.registersToWrite = {}
 				try:
-					self.box = buttshock.et312.ET312SerialSync(self.portName)
-					if self.box.port.isOpen():
-						fcntl.flock(self.box.port.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-						self.box.perform_handshake()
-						self.state = self.CONNECTED
-						self.errorCounter = 0
+					if re.search('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', self.portName):
+					    self.box = MK312(NetworkLink(self.portName, port=8843), encrypted=False)
+					else:
+					    self.box = MK312(SerialLink(self.portName))
+					self.state = self.CONNECTED
+					self.errorCounter = 0
 
-						self.storeParamValue("battery_voltage_boot")
+					self.storeParamValue("battery_voltage_boot")
 
-						v = self.storeParamValue("power_level_range")
-						self.updatePowerRangeLevel.emit(v)
+					v = self.storeParamValue("power_level_range")
+					self.updatePowerRangeLevel.emit(v)
 
-						usermodes = self.storeParamValue("user_modes_loaded")
-						for i in range (0,usermodes):
-							startmodule = self.box.read(0x8018+i)
-							if (startmodule < 0xa0):
-								programlookup = self.box.read(0x8000+startmodule-0x60)
-								programblockstart = 0x8040+programlookup
-							else:
-								programlookup = self.box.read(0x8000+startmodule-0xa0)
-								programblockstart = 0x8100+programlookup
-							print("\tUser %d is module 0x%02x\t: 0x%04x (eeprom)"%(i+1,startmodule,programblockstart))
+					usermodes = self.storeParamValue("user_modes_loaded")
+					for i in range (0,usermodes):
+						startmodule = self.box.peek(0x8018+i)
+						if (startmodule < 0xa0):
+							programlookup = self.box.peek(0x8000+startmodule-0x60)
+							programblockstart = 0x8040+programlookup
+						else:
+							programlookup = self.box.peek(0x8000+startmodule-0xa0)
+							programblockstart = 0x8100+programlookup
+						print("\tUser %d is module 0x%02x\t: 0x%04x (eeprom)"%(i+1,startmodule,programblockstart))
 
-						self.storeParamValue("box_version")
-						self.storeParamValue("v1")
-						self.storeParamValue("v2")
-						self.storeParamValue("v3")
-						self.potsOverrideUpdated.emit(self.storeParamValue('adc_disable'))
+					self.storeParamValue("box_version")
+					self.storeParamValue("v1")
+					self.storeParamValue("v2")
+					self.storeParamValue("v3")
+					self.potsOverrideUpdated.emit(self.storeParamValue('adc_disable'))
 
 
-						self.storeParamValue('advparam_ramp_level')
-						self.storeParamValue('advparam_ramp_time')
-						self.storeParamValue('advparam_depth')
-						self.storeParamValue('advparam_tempo')
-						self.storeParamValue('advparam_frequency')
-						self.storeParamValue('advparam_effect')
-						self.storeParamValue('advparam_width')
-						self.storeParamValue('advparam_pace')
-						self.advancedParamsUpdated.emit()
+					self.storeParamValue('advparam_ramp_level')
+					self.storeParamValue('advparam_ramp_time')
+					self.storeParamValue('advparam_depth')
+					self.storeParamValue('advparam_tempo')
+					self.storeParamValue('advparam_frequency')
+					self.storeParamValue('advparam_effect')
+					self.storeParamValue('advparam_width')
+					self.storeParamValue('advparam_pace')
+					self.advancedParamsUpdated.emit()
 
-						self.statusUpdated.emit(1, "Connected and synced!")
-						lastMode = None
+					self.statusUpdated.emit(1, "Connected and synchronised!")
+					lastMode = None
 
 				except Exception as e:
 					self.errorCounter+=1
@@ -255,7 +204,7 @@ class BoxWorker(QObject):
 					if self.errorCounter < 4:
 						self.statusUpdated.emit(2, msg)
 					else:
-						msg+="\nCannot syncronize with mk312... "
+						msg+="\nCannot synchronise with mk312... "
 						if "received no reply" in msg:
 							msg+="Is the box connected and powered on?"
 						else:
@@ -291,11 +240,11 @@ class BoxWorker(QObject):
 							self.storeParamValue("channel_b_split_mode")
 						if (currentmode == 0x80):
 							self.storeParamValue("current_random_mode")
-							# ~ timeleft = self.box.read(0x4075) - self.box.read(0x406a)
+							# ~ timeleft = self.box.peek(0x4075) - self.box.peek(0x406a)
 							# ~ if (timeleft<0):
 								# ~ timeleft+=256
 							# ~ print("\tTime until change mode\t: {0:#d} seconds ".format(int(timeleft/1.91)))
-						# ~ print("\tMode has been running\t: {0:#d} seconds".format(int((self.box.read(0x4089)+self.box.read(0x408a)*256)*1.048)))
+						# ~ print("\tMode has been running\t: {0:#d} seconds".format(int((self.box.peek(0x4089)+self.box.peek(0x408a)*256)*1.048)))
 
 
 					self.storeParamValue("psu_voltage") # ADC2
@@ -319,18 +268,19 @@ class BoxWorker(QObject):
 
 					self.errorCounter = 0
 				except Exception as e:
-					# ~ try:
-						# ~ self.box.reset_key()
-					# ~ except:
-						# ~ pass
 					self.errorCounter+=1
 					self.statusUpdated.emit(3, str(e))
 					if self.errorCounter % 5 == 0:
+						try:
+							 # important or the MK312 object is not deleted
+							self.box.close()
+							self.box = None
+						except Exceptiona as e:
+							print(str(e))
 						self.state = self.OPENING
 
 		try:
 			# if possible, reset the key and close the interface
-			self.box.reset_key()
 			self.box.close()
 		except:
 			pass
@@ -340,30 +290,33 @@ class BoxWorker(QObject):
 		if type(self.registers[name]) == dict:
 			register = self.registers[name]['addr']
 			if 'bit' in self.registers[name]:
-				value = self.box.read(register) & (1 << self.registers[name]['bit'])
+				value = self.box.peek(register) & (1 << self.registers[name]['bit'])
 
 			elif 'offset' in self.registers[name]:
 				offset = self.registers[name]['offset']
-				value = self.box.read(register) - offset
+				value = self.box.peek(register) - offset
 		else:
 			register = self.registers[name]
-			value = self.box.read(register)
+			value = self.box.peek(register)
 
 		self.paramsValues[name] = value
 		return value
 
-	def overWriteDisplay(self, text, posOffset=9):
+	def overWriteDisplay(self, text, posOffset=None):
 		""" overwrite name of current mode with spaces, then display text on it """
-		self.box.write(0x4180, [0x64])
-		self.box.write(0x4070, [0x15])
-		while (self.box.read(0x4070) != 0xff):
+		self.box.poke(0x4180, [0x64])
+		self.box.poke(0x4070, [0x15])
+		while (self.box.peek(0x4070) != 0xff):
 			pass
 
+		if not posOffset:
+			posOffset = 9 if len(text) < 8 else 8
+
 		for pos, char in enumerate(text):
-			self.box.write(0x4180, [ord(char), pos+posOffset])
-			self.box.write(0x4070, [0x13])
+			self.box.poke(0x4180, [ord(char), pos+posOffset])
+			self.box.poke(0x4070, [0x13])
 			i = 0
-			while (self.box.read(0x4070) != 0xff and i < 50):
+			while (self.box.peek(0x4070) != 0xff and i < 50):
 				i+=1
 
 	def writeRegistersToBox(self):
@@ -372,7 +325,7 @@ class BoxWorker(QObject):
 				addr = self.registers[name]['addr']
 				if 'bit' in self.registers[name]:
 					bit = self.registers[name]['bit']
-					value = self.box.read(addr)
+					value = self.box.peek(addr)
 					value&= ~(1 << bit)
 					if self.registersToWrite[name]:
 						value|= 1 << bit
@@ -386,37 +339,37 @@ class BoxWorker(QObject):
 			if name == 'current_mode' and self.modes[value] == "None":
 				value = 0x90
 				# so let's get it into a blank empty mode. easiest way is calltable 18
-				self.box.write(0x4078, [0x90]) # mode 90 doesn't exist
-				self.box.write(0x4070, [18]) # execute mode 90
+				self.box.poke(0x4078, [0x90]) # mode 90 doesn't exist
+				self.box.poke(0x4070, [18]) # execute mode 90
 				i = 0
-				while (self.box.read(0x4070) != 0xff and i < 50):
+				while (self.box.peek(0x4070) != 0xff and i < 50):
 					i+=1
 				for base in [0x4000,0x4100]:
 					# init
-					self.box.write(base+0xa8, [0,0]) # don't increment channel intensity
-					self.box.write(base+0xa5, [128]) # A intensity mod value = min
-					self.box.write(base+0xac, [0]) # no select
-					self.box.write(base+0xb1, [0]) # rate
-					self.box.write(base+0xae, [0x64]) # freq mod
-					self.box.write(base+0xb5, [4]) # select normal parms
-					self.box.write(base+0xb7, [0xc8]) # width mod value
-					self.box.write(base+0xba, [0]) # width mod value
-					self.box.write(base+0xbe, [4]) # select normal parms
-					self.box.write(base+0x9c, [255]) # ramp off
+					self.box.poke(base+0xa8, [0,0]) # don't increment channel intensity
+					self.box.poke(base+0xa5, [128]) # A intensity mod value = min
+					self.box.poke(base+0xac, [0]) # no select
+					self.box.poke(base+0xb1, [0]) # rate
+					self.box.poke(base+0xae, [0x64]) # freq mod
+					self.box.poke(base+0xb5, [4]) # select normal parms
+					self.box.poke(base+0xb7, [0xc8]) # width mod value
+					self.box.poke(base+0xba, [0]) # width mod value
+					self.box.poke(base+0xbe, [4]) # select normal parms
+					self.box.poke(base+0x9c, [255]) # ramp off
 
 					# actuated
-					# ~ self.box.write(base+0xac, [0]) # no select
+					# ~ self.box.poke(base+0xac, [0]) # no select
 				self.overWriteDisplay("None")
 				del self.registersToWrite[name]
 				continue
 
-			self.box.write(addr, [value])
+			self.box.poke(addr, [value])
 
 			if name == 'current_mode':
-				self.box.write(0x4070, [0x4, 0x12])
+				self.box.poke(0x4070, [0x4, 0x12])
 				time.sleep(0.018)
 			elif name.startswith("advparam_"):
-				self.box.write(0x4070, [0x20])
+				self.box.poke(0x4070, [0x20])
 				time.sleep(0.018)
 
 			del self.registersToWrite[name]
@@ -424,52 +377,163 @@ class BoxWorker(QObject):
 				break
 
 
-class SocatRedirector(QObject):
-	def __init__(self, target, localDevice):
-		QObject.__init__(self)
-		self.exitRequested = False
-		self.target = target
-		self.localDevice = localDevice
-		self.thread = QThread()
-		self.thread.setObjectName("socat thread")
-		self.moveToThread(self.thread)
-		self.thread.started.connect(self.worker)
-		self.thread.start()
-		time.sleep(0.1)
+class MK312():
+	def __init__(self, link, encrypted=True):
+		self.link = link                   # the Communication layer to the device
+		self.encryptionEnabled = encrypted # do we use the Encryptionless method or not
 
-	def stop(self):
-		self.exitRequested = True
-		if self.proc:
-			self.proc.kill()
+		# flush the input buffer
+		attempts = 0
+		while (True):
+			s = self.link.recv(1024)
+			if not s:
+				break
+			attempts+=1
+			print("Flushed:", s)
+			if attempts > 5:
+				s = str(s)
+				if len(s) > 20:
+					s = s[:20] + '...'
+				raise Exception("Device doesn't stop sending bytes (%s)" % (s))
 
-	def worker(self):
-		while not self.exitRequested:
-			try:
-				cmd = ['socat', '-d', '-d', 'pty,link=%s,raw' % self.localDevice, 'tcp:%s' % self.target]
-				print("Running:", cmd)
-				self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=1, universal_newlines=True)
-				print("Ran:", cmd, self.proc)
-				while not self.thread.isInterruptionRequested() and not self.exitRequested:
-					line = self.proc.stdout.readline()
-					if line == "":
-						break
-					print(line)
-				print("Terminated:", cmd, self.proc)
+		self.handshake()
+		self.negotiateKeys()
 
-			except Exception as e:
-				print("Socat Thread Error: %s" % str(e))
+	def close(self):
+		if self.encryptionEnabled:
+			self.poke(0x4213, [0x0]) # reset key
+		self.link = None
 
-			try:
-				self.proc.kill()
-			except:
-				pass
+	def handshake(self):
+		""" Attempts the handshake with the MK312 device, and continues, once successfull """
+		attempts = 0
+		ok = 0
+		while (True):
+			self.link.send(bytes([0x00])) # Send a 0 as a hello
+			time.sleep(0.1)
+			reply = self.link.recv(1)
+			if (len(reply) == 1 and reply[0] == 0x07):
+				ok+=1
+				if ok > 2:
+					break
+				continue
+			ok=0
+			attempts+=1
+			if (attempts > 12): raise Exception("Handshake with device failed")
 
-			time.sleep(1)
+	def negotiateKeys(self):
+		""" Do the key handshake with the device """
 
-		self.thread.quit()
+		# this encryptionless mode is only supported by RexLabs Wifi adapter
+		# (https://github.com/Rangarig/MK312WIFI/)
+		if (not self.encryptionEnabled):
+			self.link.send(bytes((0x2f, 0x42, 0x42)))
+			rx = self.link.recv(100)
+			if len(rx) != 1 or rx[0] != 0x69: raise Exception("Failed to establish non encrypted mode")
+			return
+
+		# Send key negotiation
+		# code is working only if it is set to zero, but does not seems to break the connection
+		hostKey = 0x00          # The key sent by us, 0 for simplicity
+		extraEncryptKey = 0x55  # The key always added to the encryption
+		while True:
+			self.link.send(bytes((0x2f, hostKey, 0x2f)))
+			data = self._read(3) # this does the checksum validation
+			if len(data) == 2:
+				break
+
+		boxkey = data[1]
+		self.encryptionKey = (boxkey ^ hostKey ^ extraEncryptKey)
+
+	def _write(self, data):
+		checksum = sum(data) % 256
+		data.append(checksum)
+
+		if self.encryptionEnabled:
+			data = [x ^ self.encryptionKey for x in data]
+		self.link.send(bytes(data))
+
+	def _read(self, length):
+		start = time.time()
+		data = self.link.recv(length)
+		while len(data) < length and time.time() < start + 0.5:
+			data+= self.link.recv(length-len(data))
+
+		if len(data) < 2:
+			raise Exception("Read data too short! %d < 2" % (len(data)))
+
+		data, checksum = data[:-1], data[-1]
+		computedChecksum = sum(data) % 256
+		if computedChecksum != checksum:
+			raise Exception("Checksum mismatch! (%02x != %02x)" % (computedChecksum, checksum))
+		return data
+
+	def peek(self, address):
+		self._write([0x3c, address >> 8, address & 0xff])
+		data = self._read(3)
+		return data[1]
+
+	def poke(self, startAddress, data):
+		if not self.link: return
+
+		if type(data) is not list:
+			raise TypeError("data must be a list")
+		length = len(data)
+		if length == 0 or length > 8:
+			raise Exception("Can only write between 1-8 bytes")
+
+		txData = [0x0d | ((length+3) << 4), startAddress >> 8, startAddress & 0xff] + data
+		txData.append(sum(txData) % 256)
+
+		if not self.encryptionEnabled:
+			self.link.send(bytes(txData))
+		else:
+			self.link.send(bytes([b ^ self.encryptionKey for b in txData]))
+
+		ackCode = self.link.recv(1)
+		return ackCode
+
+class NetworkLink():
+	def __init__(self, ip, port):
+		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.socket.settimeout(0.1)
+		self.socket.connect((ip, port))
+
+	def send(self, data):
+		print("send", data.hex())
+		self.socket.send(data)
+
+	def recv(self, length=1):
+		try:
+			data = self.socket.recv(length)
+			print("recv %s (%d/%d)" % (data.hex(), len(data), length))
+			return data
+		except TimeoutError:
+			print("recv (nothing) (0/%d)" % (length))
+			return b""
+
+
+class SerialLink():
+	def __init__(self, port, baudrate=19200, debug=True):
+		self.debug = debug
+		if self.debug: print("opening serial port", port)
+		self.serial = serial.Serial(port, baudrate, timeout=0.2, parity=serial.PARITY_NONE, bytesize=8, stopbits=1, xonxoff=0, rtscts=0)
+		fcntl.flock(self.serial.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+	def send(self, data):
+		if self.debug: print("send", data.hex())
+		self.serial.write(data)
+
+	def recv(self, length=1):
+		data = self.serial.read(length)
+		if self.debug: print("recv %s (%d/%d)" % (data.hex(), len(data), length))
+		return data
 
 	def __del__(self):
-		self.stop()
+		if self.debug: print("serial port closed.")
+		self.serial.close()
+		del self.serial
+
 
 boxWorker = BoxWorker()
 
@@ -1008,7 +1072,7 @@ class GUI(QWidget):
 		try:
 			text = boxWorker.modes[modeId]
 			self.mode.setCurrentText(text)
-		except:
+		except KeyError:
 			print("Unknown mode:", modeId)
 
 		self.mode.blockSignals(False)
@@ -1021,9 +1085,13 @@ class GUI(QWidget):
 
 	def updatePowerRangeLevel(self, rangeLevel):
 		self.powerRangeLevel.blockSignals(True)
-		text = boxWorker.powerlevels[rangeLevel]
-		self.powerRangeLevel.setCurrentText(text)
-		print("updatePowerRangeLevel", rangeLevel, text)
+		try:
+		    text = boxWorker.powerlevels[rangeLevel]
+		    self.powerRangeLevel.setCurrentText(text)
+		    print("updatePowerRangeLevel", rangeLevel, text)
+		except KeyError:
+			print("Unknown range level:", rangeLevel)
+
 		self.powerRangeLevel.blockSignals(False)
 
 	def powerRangeLevelChanged(self, levelText):
