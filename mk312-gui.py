@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 # https://github.com/clxjaguar/mk312-gui
-# sudo apt-get install python3-pip python3-qtpy socat
 
 VERSION = '0.11'
 import sys, re, time, socket, serial, serial.tools.list_ports, fcntl
@@ -380,7 +378,11 @@ class MK312():
 		self.link = link                   # the Communication layer to the device
 		self.encryptionEnabled = encrypted # do we use the Encryptionless method or not
 
-		# flush the input buffer
+		self._flushInputBuffer()
+		self._handshake()
+		self._negotiateKeys()
+
+	def _flushInputBuffer(self):
 		attempts = 0
 		while (True):
 			s = self.link.recv(1024)
@@ -394,16 +396,8 @@ class MK312():
 					s = s[:20] + '...'
 				raise Exception("Device doesn't stop sending bytes (%s)" % (s))
 
-		self.handshake()
-		self.negotiateKeys()
-
-	def close(self):
-		if self.encryptionEnabled:
-			self.poke(0x4213, [0x0]) # reset key
-		self.link = None
-
-	def handshake(self):
-		""" Attempts the handshake with the MK312 device, and continues, once successfull """
+	def _handshake(self):
+		""" Attempts the handshake with the MK312 device """
 		attempts = 0
 		ok = 0
 		while (True):
@@ -419,7 +413,7 @@ class MK312():
 			attempts+=1
 			if (attempts > 12): raise Exception("Handshake with device failed")
 
-	def negotiateKeys(self):
+	def _negotiateKeys(self):
 		""" Do the key handshake with the device """
 
 		# this encryptionless mode is only supported by RexLabs Wifi adapter
@@ -490,6 +484,12 @@ class MK312():
 
 		ackCode = self.link.recv(1)
 		return ackCode
+
+	def close(self):
+		if self.encryptionEnabled:
+			self.poke(0x4213, [0x0]) # reset key
+		self.link = None
+
 
 class NetworkLink():
 	def __init__(self, ip, port, debug=False):
