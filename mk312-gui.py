@@ -4,10 +4,8 @@
 # https://github.com/clxjaguar/mk312-gui
 # sudo apt-get install python3-pip python3-qtpy socat
 
-VERSION = '0.1'
-import os, sys, glob, re, time, socket, serial, fcntl
-
-# https://stpihkal.docs.buttplug.io/protocols/erostek-et312b.html#memory-layout-tables
+VERSION = '0.11'
+import sys, re, time, socket, serial, serial.tools.list_ports, fcntl
 
 try:
 	# sudo apt-get install python3-pyqt5
@@ -1118,31 +1116,9 @@ class SerialPortPicker(QHBoxLayout):
 		self.openBtn.setDisabled(False if text.strip() != "" else True)
 
 	def listSerialPorts(self):
-		""" Lists serial port names
-
-			:raises EnvironmentError:
-				On unsupported or unknown platforms
-			:returns:
-				A list of the serial ports available on the system
-		"""
-		if sys.platform.startswith('win'):
-			ports = ['COM%s' % (i + 1) for i in range(255)]
-		elif sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
-			# this excludes your current terminal "/dev/tty"
-			ports = glob.glob('/dev/tty[A-Za-z]*')
-		elif sys.platform.startswith('darwin'):
-			ports = glob.glob('/dev/tty.*')
-		else:
-			raise EnvironmentError('Unsupported platform')
-
 		result = []
-		for port in ports:
-			try:
-				s = serial.Serial(port)
-				s.close()
-				result.append(port)
-			except Exception as e:
-				pass
+		for port in serial.tools.list_ports.comports():
+			result.append(tuple(port)[0])
 		return result
 
 	def refreshSerial(self):
