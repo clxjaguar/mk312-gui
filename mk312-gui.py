@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # https://github.com/clxjaguar/mk312-gui
 
-VERSION = '0.11'
+VERSION = '0.12'
 import sys, re, time, socket, serial, serial.tools.list_ports, fcntl
 
 try:
@@ -638,8 +638,7 @@ class GUI(QWidget):
 	def initUI(self):
 		self.setStyleSheet("\
 			QLabel#value { font-size: 24pt; } \
-			QProgressBar#channel { font-size: 24px; background-color: transparent; border: 0px solid black; text-align: center; margin-bottom: 8px; } \
-			QProgressBar::chunk#channel { background-color: QLinearGradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #000000ff, stop: 1 #ff0000ff ); } \
+			QProgressBar#channel { font-size: 24px; background-color: transparent; border: 0px solid black; text-align: center; } \
 			QLabel#label { font-size: 12pt; } \
 			QPushButton::checked#green { color: #000000; background: #00ff00; } \
 			QPushButton::checked#normal { color: #000000; background: #70ff70; } \
@@ -717,12 +716,27 @@ class GUI(QWidget):
 
 				channelsLayout.addWidget(self)
 				layout = QVBoxLayout(self)
-				layout.setSpacing(0)
+				layout.setSpacing(5)
 
-				self.levelBar = QProgressBar()
-				self.levelBar.setRange(0, 255)
-				self.levelBar.setObjectName('channel')
-				self.levelBar.setFormat("")
+				class LevelBar(QProgressBar):
+					def __init__(self):
+						QProgressBar.__init__(self)
+						self.setRange(0, 255)
+						self.setObjectName('channel')
+						self.setValueText(None)
+						self.setValue(0)
+
+					def setValue(self, value):
+						QProgressBar.setValue(self, value)
+						self.setStyleSheet("QProgressBar::chunk#channel { background-color: QLinearGradient(x1: 0, y1: 0, x2: %f, y2: 0, stop: 0 #000000ff, stop: 1 #ff0000ff ); border-radius: 5px; }" % (255/value if value > 0 else 1))
+
+					def setValueText(self, value):
+						if value is None:
+							self.setFormat("")
+						else:
+							self.setFormat("%02d" % (value / 2.56))
+
+				self.levelBar = LevelBar()
 				layout.addWidget(self.levelBar)
 
 				layout2 = QHBoxLayout()
@@ -811,11 +825,11 @@ class GUI(QWidget):
 					self.isDefaultPosition = False
 				if not self.enabled:
 					self.levelBar.setValue(self.value)
-				self.levelBar.setFormat("%02d" % (self.value / 2.56))
+				self.levelBar.setValueText(self.value)
 
 			def clear(self):
 				self.levelBar.setValue(0)
-				self.levelBar.setFormat("")
+				self.levelBar.setValueText(None)
 
 			def dialValueChanged(self): #todo: change that name
 				value = self.dial.value()
@@ -834,8 +848,6 @@ class GUI(QWidget):
 					elif value > 255:      value = 255
 					self.levelBar.setValue(value)
 					boxWorker.setVal(self.writeRegisterName, value)
-					if value > 0:
-						self.levelBar.setStyleSheet("QProgressBar::chunk#channel { background-color: QLinearGradient(x1: 0, y1: 0, x2: %f, y2: 0, stop: 0 #000000ff, stop: 1 #ff0000ff ); border-radius: 5px; }" % (255/value));
 
 			def setEnabled(self, state):
 				self.dial.setEnabled(state)
@@ -928,13 +940,11 @@ class GUI(QWidget):
 					layout.addWidget(slider.valueLabel, i, 3)
 					self.sliders[paramName] = slider
 
-
 			def valueChanged(self, i):
 				# ~ print(self.sender().paramName, i, self.sender().valueLabel)
 				i*=self.sender().granularity
 				self.sender().valueLabel.setText("%d" % i)
 				boxWorker.setVal(self.sender().paramName, i+self.sender().paramOffset)
-
 
 			def paramsUpdate(self):
 				for paramName in self.sliders:
