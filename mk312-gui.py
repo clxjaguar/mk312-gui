@@ -492,27 +492,28 @@ class MK312():
 		return ackCode
 
 class NetworkLink():
-	def __init__(self, ip, port):
+	def __init__(self, ip, port, debug=False):
+		self.debug = debug
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.socket.settimeout(0.1)
 		self.socket.connect((ip, port))
 
 	def send(self, data):
-		print("send", data.hex())
+		if self.debug: print("send", data.hex())
 		self.socket.send(data)
 
 	def recv(self, length=1):
 		try:
 			data = self.socket.recv(length)
-			print("recv %s (%d/%d)" % (data.hex(), len(data), length))
+			if self.debug: print("recv %s (%d/%d)" % (data.hex(), len(data), length))
 			return data
 		except TimeoutError:
-			print("recv (nothing) (0/%d)" % (length))
+			if self.debug: print("recv (nothing) (0/%d)" % (length))
 			return b""
 
 
 class SerialLink():
-	def __init__(self, port, baudrate=19200, debug=True):
+	def __init__(self, port, baudrate=19200, debug=False):
 		self.debug = debug
 		if self.debug: print("opening serial port", port)
 		self.serial = serial.Serial(port, baudrate, timeout=0.2, parity=serial.PARITY_NONE, bytesize=8, stopbits=1, xonxoff=0, rtscts=0)
