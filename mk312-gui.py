@@ -988,16 +988,12 @@ class GUI(QWidget):
 
 		layout.addLayout(layout2)
 
-
 		self.setWindowTitle(u"MK-312 Remote Control v%s" % (VERSION))
 		self.setWindowIcon(getEmbeddedIcon())
 		self.show()
 
 	def boxStatusUpdated(self, level, text):
 		self.errorLabel.show()
-		#label->move(textEditor->mapToGlobal(QPoint(x, y)))
-		# ~ self.errorLabel.move(360, 10)
-		# ~ self.errorLabel.resize(100, 20)
 		self.errorLabel.setText(text)
 		if level == 2:
 			color = '#ffff77'
@@ -1025,7 +1021,6 @@ class GUI(QWidget):
 		self.channels[1].update(boxWorker.getVal('channel_b_level'))
 		self.multiAdjust.update(boxWorker.getVal('multiadjust_scaled'), boxWorker.getVal('multiadjust_min'), boxWorker.getVal('multiadjust_max'))
 
-
 		batteryVoltage = float(boxWorker.getVal('battery_voltage')) / 12.425
 		psuVoltage = boxWorker.getVal('psu_voltage') * 0.12
 		# ~ infos = ""
@@ -1034,19 +1029,11 @@ class GUI(QWidget):
 		# ~ infos+="%s: %.4fV\n" % ('PSU', psuVoltage)
 		# ~ infos+="%s: %d"   % ('current_sense', boxWorker.getVal('current_sense'))
 
-
 		self.batteryBar.setFormat("%.1fV" % round(batteryVoltage, 1))
 		batteryBarValue = int((batteryVoltage - 11.5) * 57.14)
 		if batteryBarValue > 100: batteryBarValue = 100
 		elif batteryBarValue < 0: batteryBarValue = 0
-		# ~ if batteryBar > self.batteryBar.value():
-			# ~ self.batteryBar.setValue(self.batteryBar.value()+1)
-		# ~ elif batteryBar < self.batteryBar.value():
-			# ~ self.batteryBar.setValue(self.batteryBar.value()-1)
 		self.batteryBar.setValue(batteryBarValue)
-
-
-		# ~ self.infos.setText(infos)
 
 	def potsOverrideClicked(self, state):
 		#state = self.potsOverrideBtn.isChecked()
@@ -1054,7 +1041,6 @@ class GUI(QWidget):
 		for w in self.channels[0], self.channels[1], self.multiAdjust:
 			w.setEnabled(state)
 		self.potsOverrideBtn.setChecked(state)
-
 
 	def fillModes(self):
 		self.mode.blockSignals(True)
@@ -1080,7 +1066,6 @@ class GUI(QWidget):
 	def modeChanged(self, modeName):
 		modeId = self.modeNames2Id[modeName]
 		print("mode:", modeName, modeId)
-		# ~ self.updateMode(modeId)
 		boxWorker.setVal('current_mode', modeId)
 
 	def updatePowerRangeLevel(self, rangeLevel):
@@ -1104,10 +1089,10 @@ class GUI(QWidget):
 
 class SerialPortPicker(QHBoxLayout):
 	def __init__(self, parentWidget, portOpenFunction=None, portCloseFunction=None):
+		QHBoxLayout.__init__(self)
 		self.portOpenFunction = portOpenFunction
 		self.portCloseFunction = portCloseFunction
 		self.parentWidget = parentWidget
-		QHBoxLayout.__init__(self)
 
 		self.refreshBtn = QToolButton()
 		self.refreshBtn.setText(u"↻")
@@ -1156,9 +1141,7 @@ class SerialPortPicker(QHBoxLayout):
 				s = serial.Serial(port)
 				s.close()
 				result.append(port)
-			# ~ except (OSError, serial.SerialException):
 			except Exception as e:
-				# ~ print(port, e)
 				pass
 		return result
 
