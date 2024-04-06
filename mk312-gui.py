@@ -3,7 +3,7 @@
 # https://github.com/clxjaguar/mk312-gui
 
 VERSION = '0.12'
-import sys, re, time, socket, serial, serial.tools.list_ports, fcntl
+import sys, re, time, socket, serial, serial.tools.list_ports
 
 try:
 	# sudo apt-get install python3-pyqt5
@@ -23,6 +23,10 @@ except:
 		sys.stderr.write("Error: PyQt seems to be missing!\n")
 		sys.stderr.write("Please type: sudo apt install python3-qtpy\n")
 		exit()
+
+# the fcntl module seems to not to exists on windows
+try: import fcntl
+except: fcntl = None
 
 class BoxWorker(QObject):
 	CLOSED = 0
@@ -517,7 +521,8 @@ class SerialLink():
 		self.debug = debug
 		if self.debug: print("opening serial port", port)
 		self.serial = serial.Serial(port, baudrate, timeout=0.2, parity=serial.PARITY_NONE, bytesize=8, stopbits=1, xonxoff=0, rtscts=0)
-		fcntl.flock(self.serial.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+		if fcntl is not None:
+			fcntl.flock(self.serial.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 	def send(self, data):
 		if self.debug: print("send", data.hex())
