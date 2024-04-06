@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # https://github.com/clxjaguar/mk312-gui
 
-VERSION = '0.12'
+VERSION = '0.13'
 import sys, re, time, socket, serial, serial.tools.list_ports
 
 try:
@@ -54,6 +54,7 @@ class BoxWorker(QObject):
 
 	boxNetworkAddressAutoDetected = pyqtSignal(str)
 	commUpdated = pyqtSignal()
+	boxCommClosed = pyqtSignal()
 	statusUpdated = pyqtSignal(int, str)
 	modeChanged = pyqtSignal(int)
 	updatePowerRangeLevel = pyqtSignal(int)
@@ -144,6 +145,7 @@ class BoxWorker(QObject):
 					self.box.close()
 					self.state = self.CLOSED
 					self.statusUpdated.emit(1, "Port closed.")
+					self.boxCommClosed.emit()
 				except Exception as e:
 					self.statusUpdated.emit(3, str(e))
 
@@ -608,6 +610,7 @@ class GUI(QWidget):
 
 		boxWorker.statusUpdated.connect(self.boxStatusUpdated)
 		boxWorker.commUpdated.connect(self.boxCommUpdated)
+		boxWorker.boxCommClosed.connect(self.boxCommClosed)
 		boxWorker.modeChanged.connect(self.updateMode)
 		boxWorker.updatePowerRangeLevel.connect(self.updatePowerRangeLevel)
 		self.initUI()
@@ -657,12 +660,7 @@ class GUI(QWidget):
 		");
 		self.setObjectName("backgroundWidget")
 		layout = QVBoxLayout(self)
-		def closeFct():
-			for ch in self.channels[0], self.channels[1]:
-				ch.computeValue(0)
-				ch.clear()
-			boxWorker.close()
-		self.serialPortPicker = SerialPortPicker(self, boxWorker.open, closeFct)
+		self.serialPortPicker = SerialPortPicker(self, boxWorker.open, boxWorker.close)
 		layout.addLayout(self.serialPortPicker)
 
 		def mkQLabel(text=None, layout=None, alignment=Qt.AlignLeft, objectName=None):
@@ -901,6 +899,9 @@ class GUI(QWidget):
 					self.dial.setValue(valMax - value)
 					self.isDefaultPosition = False
 
+			def clear(self):
+				self.valueLabel.setText("")
+
 			def dialValueChanged(self, value):
 				if self.enabled:
 					boxWorker.setVal(self.writeRegisterName, (self.valMax - value))
@@ -1048,6 +1049,14 @@ class GUI(QWidget):
 		if batteryBarValue > 100: batteryBarValue = 100
 		elif batteryBarValue < 0: batteryBarValue = 0
 		self.batteryBar.setValue(batteryBarValue)
+
+	def boxCommClosed(self):
+		self.batteryBar.setFormat("")
+		self.batteryBar.setValue(0)
+		for ch in self.channels[0], self.channels[1]:
+			ch.computeValue(0)
+			ch.clear()
+		self.multiAdjust.clear()
 
 	def potsOverrideClicked(self, state):
 		#state = self.potsOverrideBtn.isChecked()
