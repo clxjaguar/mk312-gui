@@ -103,10 +103,10 @@ class BoxWorker(QObject):
 		server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 		server.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 		server.settimeout(timeout)
-		server.sendto(message, ('255.255.255.255', UDP_DISCOVERY_PORT))
-		t = time.time()
-
 		try:
+			server.sendto(message, ('255.255.255.255', UDP_DISCOVERY_PORT))
+			t = time.time()
+
 			while(True):
 				data, addr = server.recvfrom(1024)
 				elapsed_ms = 1000 * (time.time() - t)
@@ -117,9 +117,14 @@ class BoxWorker(QObject):
 		except socket.timeout:
 			pass
 
+		# "Network is unreachable" can happen when waking up from sleep
+		except OSError as e:
+			print(str(e))
+			time.sleep(1)
+			pass
+
 		except Exception as e:
 			raise(e)
-			print(str(e))
 
 		return hosts
 
