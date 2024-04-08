@@ -506,7 +506,7 @@ class NetworkLink():
 	def __init__(self, ip, port, debug=False):
 		self.debug = debug
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.socket.settimeout(0.1)
+		self.socket.settimeout(0.2)
 		self.socket.connect((ip, port))
 
 	def send(self, data):
@@ -517,10 +517,12 @@ class NetworkLink():
 		try:
 			data = self.socket.recv(length)
 			if self.debug: print("recv %s (%d/%d)" % (data.hex(), len(data), length))
-			return data
 		except TimeoutError:
-			if self.debug: print("recv (nothing) (0/%d)" % (length))
-			return b""
+			data = b""
+		except socket.timeout:
+			data = b""
+		if self.debug: print("recv (timeout) (0/%d)" % (length))
+		return data
 
 
 class SerialLink():
