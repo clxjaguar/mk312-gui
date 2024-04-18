@@ -520,11 +520,9 @@ class NetworkLink():
 		try:
 			data = self.socket.recv(length)
 			if self.debug: print("recv %s (%d/%d)" % (data.hex(), len(data), length))
-		except TimeoutError:
+		except (TimeoutError, socket.timeout):
 			data = b""
-		except socket.timeout:
-			data = b""
-		if self.debug: print("recv (timeout) (0/%d)" % (length))
+			if self.debug: print("recv (timeout) (0/%d)" % (length))
 		return data
 
 
