@@ -462,11 +462,13 @@ class MK312():
 	def _read(self, length):
 		start = time.time()
 		data = self.link.recv(length)
+
+		# this is a workaround for MK312-WIFI firmware prior to v1.2.02 (sending a packet per byte)
 		while len(data) < length and time.time() < start + 0.5:
 			data+= self.link.recv(length-len(data))
 
-		if len(data) < 2:
-			raise Exception("Read data too short! %d < 2" % (len(data)))
+		if len(data) < length:
+			raise Exception("Unable to receive all the requested bytes (%d < %d)" % (len(data), length))
 
 		data, checksum = data[:-1], data[-1]
 		computedChecksum = sum(data) % 256
@@ -509,7 +511,7 @@ class NetworkLink():
 	def __init__(self, ip, port, debug=False):
 		self.debug = debug
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.socket.settimeout(0.2)
+		self.socket.settimeout(0.5)
 		self.socket.connect((ip, port))
 
 	def send(self, data):
