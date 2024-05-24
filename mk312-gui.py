@@ -91,7 +91,7 @@ class BoxWorker(QObject):
 
 	def setValue(self, name, value):
 		if name not in self.registers:
-			self.statusUpdated.emit(2, name+" unknown!")
+			self.statusUpdated.emit(2, "Register '%s' unknown (bug?)" % (name))
 		else:
 			self.registersToWrite[name] = value
 
