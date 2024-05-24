@@ -84,12 +84,12 @@ class BoxWorker(QObject):
 		self.state = self.EXITING
 		self.portName = None
 
-	def getVal(self, name):
+	def getValue(self, name):
 		if name not in self.paramsValues:
 			return float('nan')
 		return self.paramsValues[name]
 
-	def setVal(self, name, value):
+	def setValue(self, name, value):
 		if name not in self.registers:
 			self.statusUpdated.emit(2, name+" unknown!")
 		else:
@@ -860,7 +860,7 @@ class GUI(QWidget):
 					if   value < 0:        value = 0
 					elif value > 255:      value = 255
 					self.levelBar.setValue(value)
-					boxWorker.setVal(self.writeRegisterName, value)
+					boxWorker.setValue(self.writeRegisterName, value)
 
 			def setEnabled(self, state):
 				self.dial.setEnabled(state)
@@ -914,7 +914,7 @@ class GUI(QWidget):
 
 			def dialValueChanged(self, value):
 				if self.enabled:
-					boxWorker.setVal(self.writeRegisterName, (self.valMax - value))
+					boxWorker.setValue(self.writeRegisterName, (self.valMax - value))
 
 			def setEnabled(self, state):
 				self.enabled = state
@@ -960,12 +960,12 @@ class GUI(QWidget):
 				# ~ print(self.sender().paramName, i, self.sender().valueLabel)
 				i*=self.sender().granularity
 				self.sender().valueLabel.setText("%d" % i)
-				boxWorker.setVal(self.sender().paramName, i+self.sender().paramOffset)
+				boxWorker.setValue(self.sender().paramName, i+self.sender().paramOffset)
 
 			def paramsUpdate(self):
 				for paramName in self.sliders:
 					slider = self.sliders[paramName]
-					value = boxWorker.getVal(paramName) - slider.paramOffset
+					value = boxWorker.getValue(paramName) - slider.paramOffset
 					slider.blockSignals(True)
 					slider.valueLabel.setText("%d" % value)
 					slider.setValue(int(value / slider.granularity))
@@ -1042,17 +1042,17 @@ class GUI(QWidget):
 
 	def boxCommUpdated(self):
 		# ~ print(boxWorker.paramsValues)
-		self.channels[0].update(boxWorker.getVal('channel_a_level'))
-		self.channels[1].update(boxWorker.getVal('channel_b_level'))
-		self.multiAdjust.update(boxWorker.getVal('multiadjust_scaled'), boxWorker.getVal('multiadjust_min'), boxWorker.getVal('multiadjust_max'))
+		self.channels[0].update(boxWorker.getValue('channel_a_level'))
+		self.channels[1].update(boxWorker.getValue('channel_b_level'))
+		self.multiAdjust.update(boxWorker.getValue('multiadjust_scaled'), boxWorker.getValue('multiadjust_min'), boxWorker.getValue('multiadjust_max'))
 
-		batteryVoltage = float(boxWorker.getVal('battery_voltage')) / 12.425
-		psuVoltage = boxWorker.getVal('psu_voltage') * 0.12
+		batteryVoltage = float(boxWorker.getValue('battery_voltage')) / 12.425
+		psuVoltage = boxWorker.getValue('psu_voltage') * 0.12
 		# ~ infos = ""
-		# ~ infos+="%s: %.0f%%\n" % ('Battery at boot', boxWorker.getVal('battery_voltage_boot') / 2.56)
+		# ~ infos+="%s: %.0f%%\n" % ('Battery at boot', boxWorker.getValue('battery_voltage_boot') / 2.56)
 		# ~ infos+="%s: %.4fV\n" % ('Battery', batteryVoltage)
 		# ~ infos+="%s: %.4fV\n" % ('PSU', psuVoltage)
-		# ~ infos+="%s: %d"   % ('current_sense', boxWorker.getVal('current_sense'))
+		# ~ infos+="%s: %d"   % ('current_sense', boxWorker.getValue('current_sense'))
 
 		self.batteryBar.setFormat("%.1fV" % round(batteryVoltage, 1))
 		batteryBarValue = int((batteryVoltage - 11.5) * 57.14)
@@ -1070,7 +1070,7 @@ class GUI(QWidget):
 
 	def potsOverrideClicked(self, state):
 		#state = self.potsOverrideBtn.isChecked()
-		boxWorker.setVal('adc_disable', state)
+		boxWorker.setValue('adc_disable', state)
 		for w in self.channels[0], self.channels[1], self.multiAdjust:
 			w.setEnabled(state)
 		self.potsOverrideBtn.setChecked(state)
@@ -1099,7 +1099,7 @@ class GUI(QWidget):
 	def modeChanged(self, modeName):
 		modeId = self.modeNames2Id[modeName]
 		print("mode:", modeName, modeId)
-		boxWorker.setVal('current_mode', modeId)
+		boxWorker.setValue('current_mode', modeId)
 
 	def updatePowerRangeLevel(self, rangeLevel):
 		self.powerRangeLevel.blockSignals(True)
@@ -1118,7 +1118,7 @@ class GUI(QWidget):
 				levelId = k
 
 		print("powerRangeLevel:", levelText, levelId)
-		boxWorker.setVal('power_level_range', levelId)
+		boxWorker.setValue('power_level_range', levelId)
 
 class SerialPortPicker(QHBoxLayout):
 	def __init__(self, parentWidget, portOpenFunction=None, portCloseFunction=None):
