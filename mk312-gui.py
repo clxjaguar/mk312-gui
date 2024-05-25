@@ -129,9 +129,83 @@ class BoxWorker(QObject):
 		return hosts
 
 	def worker(self):
+		def writeRegistersToBox():
+			for i, name in enumerate(self.registersToWrite.copy()):
+				if type(self.registers[name]) == dict:
+					addr = self.registers[name]['addr']
+					if 'bit' in self.registers[name]:
+						bit = self.registers[name]['bit']
+						value = self.box.peek(addr)
+						value&= ~(1 << bit)
+						if self.registersToWrite[name]:
+							value|= 1 << bit
+					else:
+						value = self.registersToWrite[name]
+				else:
+					addr = self.registers[name]
+					value = self.registersToWrite[name]
+
+				print(name, addr, value)
+				if name == 'current_mode' and self.modes[value] == "None":
+					value = 0x90
+					# so let's get it into a blank empty mode. easiest way is calltable 18
+					self.box.poke(0x4078, [0x90]) # mode 90 doesn't exist
+					self.box.poke(0x4070, [18]) # execute mode 90
+					i = 0
+					while (self.box.peek(0x4070) != 0xff and i < 50):
+						i+=1
+					for base in [0x4000,0x4100]:
+						# init
+						self.box.poke(base+0xa8, [0,0]) # don't increment channel intensity
+						self.box.poke(base+0xa5, [128]) # A intensity mod value = min
+						self.box.poke(base+0xac, [0]) # no select
+						self.box.poke(base+0xb1, [0]) # rate
+						self.box.poke(base+0xae, [0x64]) # freq mod
+						self.box.poke(base+0xb5, [4]) # select normal parms
+						self.box.poke(base+0xb7, [0xc8]) # width mod value
+						self.box.poke(base+0xba, [0]) # width mod value
+						self.box.poke(base+0xbe, [4]) # select normal parms
+						self.box.poke(base+0x9c, [255]) # ramp off
+
+						# actuated
+						# ~ self.box.poke(base+0xac, [0]) # no select
+					self.overWriteDisplay("None")
+					del self.registersToWrite[name]
+					continue
+
+				self.box.poke(addr, [value])
+
+				if name == 'current_mode':
+					self.box.poke(0x4070, [0x4, 0x12])
+					time.sleep(0.018)
+				elif name.startswith("advparam_"):
+					self.box.poke(0x4070, [0x20])
+					time.sleep(0.018)
+
+				del self.registersToWrite[name]
+				if i > 3:
+					break
+
+		def overWriteDisplay(text, posOffset=None):
+			if posOffset is None:
+				self.box.poke(0x4180, [0x64])
+				self.box.poke(0x4070, [0x15])
+				while (self.box.peek(0x4070) != 0xff):
+					pass
+
+				posOffset = 9 if len(text) < 8 else 8
+
+			for pos, char in enumerate(text):
+				self.box.poke(0x4180, [ord(char), pos+posOffset])
+				self.box.poke(0x4070, [0x13])
+				i = 0
+				while (self.box.peek(0x4070) != 0xff and i < 50):
+					i+=1
+
 		print("Starting BoxWorker.worker()")
 		self.paramsValues = {}
 		self.registersToWrite = {}
+		self.displayMessagesToWrite = []
 		self.errorCounter = 0
 
 		while(self.state != self.EXITING):
@@ -146,7 +220,7 @@ class BoxWorker(QObject):
 
 			elif self.state == self.CLOSING:
 				try:
-					self.writeRegistersToBox()
+					writeRegistersToBox()
 					self.box.close()
 					self.state = self.CLOSED
 					self.statusUpdated.emit(1, "Port closed.")
@@ -161,6 +235,7 @@ class BoxWorker(QObject):
 					continue
 
 				self.registersToWrite = {}
+				self.displayMessagesToWrite = []
 				try:
 					if re.search('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]+$', self.portName):
 						host, port = self.portName.split(':')
@@ -228,7 +303,9 @@ class BoxWorker(QObject):
 					continue
 
 				try:
-					self.writeRegistersToBox()
+					writeRegistersToBox()
+					if len(self.displayMessagesToWrite):
+						overWriteDisplay(*self.displayMessagesToWrite.pop(0))
 
 					# ~ self.storeParamValue("current_sense") # ADC0
 					self.storeParamValue("multiadjust_scaled")
@@ -312,79 +389,11 @@ class BoxWorker(QObject):
 		self.paramsValues[name] = value
 		return value
 
-	def overWriteDisplay(self, text, posOffset=None):
-		""" overwrite name of current mode with spaces, then display text on it """
-		self.box.poke(0x4180, [0x64])
-		self.box.poke(0x4070, [0x15])
-		while (self.box.peek(0x4070) != 0xff):
-			pass
-
-		if not posOffset:
-			posOffset = 9 if len(text) < 8 else 8
-
-		for pos, char in enumerate(text):
-			self.box.poke(0x4180, [ord(char), pos+posOffset])
-			self.box.poke(0x4070, [0x13])
-			i = 0
-			while (self.box.peek(0x4070) != 0xff and i < 50):
-				i+=1
-
-	def writeRegistersToBox(self):
-		for i, name in enumerate(self.registersToWrite.copy()):
-			if type(self.registers[name]) == dict:
-				addr = self.registers[name]['addr']
-				if 'bit' in self.registers[name]:
-					bit = self.registers[name]['bit']
-					value = self.box.peek(addr)
-					value&= ~(1 << bit)
-					if self.registersToWrite[name]:
-						value|= 1 << bit
-				else:
-					value = self.registersToWrite[name]
-			else:
-				addr = self.registers[name]
-				value = self.registersToWrite[name]
-
-			print(name, addr, value)
-			if name == 'current_mode' and self.modes[value] == "None":
-				value = 0x90
-				# so let's get it into a blank empty mode. easiest way is calltable 18
-				self.box.poke(0x4078, [0x90]) # mode 90 doesn't exist
-				self.box.poke(0x4070, [18]) # execute mode 90
-				i = 0
-				while (self.box.peek(0x4070) != 0xff and i < 50):
-					i+=1
-				for base in [0x4000,0x4100]:
-					# init
-					self.box.poke(base+0xa8, [0,0]) # don't increment channel intensity
-					self.box.poke(base+0xa5, [128]) # A intensity mod value = min
-					self.box.poke(base+0xac, [0]) # no select
-					self.box.poke(base+0xb1, [0]) # rate
-					self.box.poke(base+0xae, [0x64]) # freq mod
-					self.box.poke(base+0xb5, [4]) # select normal parms
-					self.box.poke(base+0xb7, [0xc8]) # width mod value
-					self.box.poke(base+0xba, [0]) # width mod value
-					self.box.poke(base+0xbe, [4]) # select normal parms
-					self.box.poke(base+0x9c, [255]) # ramp off
-
-					# actuated
-					# ~ self.box.poke(base+0xac, [0]) # no select
-				self.overWriteDisplay("None")
-				del self.registersToWrite[name]
-				continue
-
-			self.box.poke(addr, [value])
-
-			if name == 'current_mode':
-				self.box.poke(0x4070, [0x4, 0x12])
-				time.sleep(0.018)
-			elif name.startswith("advparam_"):
-				self.box.poke(0x4070, [0x20])
-				time.sleep(0.018)
-
-			del self.registersToWrite[name]
-			if i > 3:
-				break
+	def overWriteDisplay(self, text, posOffset=None, line=None):
+		if posOffset is None and line is not None:
+			posOffset = 0
+		if line==2: posOffset+=64
+		self.displayMessagesToWrite.append((text, posOffset))
 
 
 class MK312():
