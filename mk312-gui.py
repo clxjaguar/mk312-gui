@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # https://github.com/clxjaguar/mk312-gui
 
-VERSION = '0.13'
+VERSION = '0.14'
 import sys, re, time, socket, serial, serial.tools.list_ports
 
 try:
@@ -623,9 +623,95 @@ class RegistersView(QTableWidget):
 				self.cellWidget(i, 1).setText(str(parameters[parameterName]))
 
 
+class ScreenEdit(QDialog):
+	closed = pyqtSignal()
+
+	class FixedMonospaceTextEdit(QPlainTextEdit):
+		def __init__(self, lines=2, cols=16, fontSize=20, fontName="Monospace"):
+			QPlainTextEdit.__init__(self)
+			self.lines, self.cols, self.fontName = lines, cols, fontName
+			self.textChanged.connect(self.doTidying)
+			font = QFont(self.fontName, fontSize)
+			self.setFont(font)
+			self.setCursorWidth(QFontMetrics(font).horizontalAdvance('_'))
+			self.setLineWrapMode(self.NoWrap)
+			self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+			self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+			self.setPlainText('\n'.join([' ' * cols] * lines))
+			QTimer.singleShot(1, self.resize)
+
+		def resize(self):
+			left_margin, top_margin, right_margin, bottom_margin = self.getContentsMargins()
+			frame_width = self.frameWidth() * 2  # Left and right frame
+
+			font_metrics = QFontMetrics(self.font())
+			width = self.document().size().width()
+			height = self.document().size().height() * font_metrics.lineSpacing() * 1.10 + 5 # not perfect but does the job...?
+
+			self.setFixedSize(int(width) + frame_width + left_margin + right_margin,
+							  int(height) + frame_width + top_margin + bottom_margin)
+
+		def doTidying(self):
+			text = self.toPlainText().replace("\t", " ").split('\n')
+			cursor = self.textCursor()
+			cursorPosition = cursor.position()
+			updateFlag = False
+			if len(text) > self.lines:
+				text = text[:self.lines]
+				updateFlag = True
+			while len(text) < self.lines:
+				text.append('')
+				updateFlag = True
+			for n, line in enumerate(text):
+				if len(line) < self.cols:
+					if n == 0 and len(line) < cursorPosition:
+						cursorPosition += self.cols-len(line)
+					text[n]+=" "*(self.cols-len(line))
+					updateFlag = True
+				elif len(line) > self.cols:
+					text[n] = line[0:self.cols]
+					updateFlag = True
+
+			if updateFlag:
+				if cursorPosition > self.cols*self.lines:
+					cursorPosition = self.cols*self.lines
+				self.blockSignals(True)
+				self.setPlainText('\n'.join(text))
+				self.verticalScrollBar().setValue(0)
+				cursor.setPosition(cursorPosition)
+				self.setTextCursor(cursor)
+				self.blockSignals(False)
+
+	def __init__(self, parent=None):
+		QDialog.__init__(self, parent)
+		self.layout = QVBoxLayout(self)
+		self.boxWorker = boxWorker
+		self.editor = self.FixedMonospaceTextEdit()
+		self.editor.setStyleSheet('background-color: #2050ff; color: #ffffff;')
+		self.layout.addWidget(self.editor)
+		self.button = QPushButton("Send to MK312")
+		self.button.clicked.connect(self.buttonClicked)
+		self.layout.addWidget(self.button)
+		self.setSizeGripEnabled(False)
+		self.setMaximumSize(QSize(0, 0))
+		self.setWindowTitle(u"LCD Fun")
+		self.show()
+
+	def buttonClicked(self):
+		lines = self.editor.toPlainText().split('\n')
+		boxWorker.overWriteDisplay(lines[0], line=1)
+		boxWorker.overWriteDisplay(lines[1], line=2)
+
+	def closeEvent(self, event):
+		self.closed.emit()
+
+
 class GUI(QWidget):
 	def __init__(self):
 		QWidget.__init__(self)
+
+		self.screenEditWindow = None
+		self.registersWindow = None
 
 		boxWorker.statusUpdated.connect(self.boxStatusUpdated)
 		boxWorker.commUpdated.connect(self.boxCommUpdated)
@@ -658,8 +744,10 @@ class GUI(QWidget):
 
 	def closeEvent(self, event):
 		boxWorker.close()
-		if self.registersView:
-			self.registersView.close()
+		if self.registersWindow:
+			self.registersWindow.close()
+		if self.screenEditWindow:
+			self.screenEditWindow.close()
 		event.accept()
 
 	def initUI(self):
@@ -990,16 +1078,23 @@ class GUI(QWidget):
 
 		def showRegistersBtnClicked(state):
 			if state:
-				self.registersView = RegistersView()
-				self.registersView.closed.connect(lambda: self.showRegistersBtn.setChecked(False))
-			elif self.registersView != None:
-				self.registersView.close()
-				self.registersView = None
+				self.registersWindow = RegistersView()
+				self.registersWindow.closed.connect(lambda: self.showRegistersBtn.setChecked(False))
+			elif self.registersWindow != None:
+				self.registersWindow.close()
+				self.registersWindow = None
 
 		self.showRegistersBtn = mkButton("Show Registers", layout2, function=showRegistersBtnClicked, setCheckable=True)
-		self.registersView = None
 
-		layout2.addStretch()
+		def showScreenEditBtnClicked(state):
+			if state:
+				self.screenEditWindow = ScreenEdit(self)
+				self.screenEditWindow.closed.connect(lambda: self.showScreenEditBtn.setChecked(False))
+			elif self.screenEditWindow != None:
+				self.screenEditWindow.close()
+				self.screenEditWindow = None
+
+		self.showScreenEditBtn = mkButton("LCD", layout2, function=showScreenEditBtnClicked, setCheckable=True, toolButton=True)
 
 		layout2.addStretch()
 
