@@ -50,7 +50,8 @@ class BoxWorker(QObject):
 	             'channel_b_level': 0x4065, 'power_level_range': 0x41f4,
 	             'user_modes_loaded': {'addr': 0x41f3, 'offset': 0x87}, 'adc_disable': {'addr': 0x400f, 'bit': 0},
 	             'box_version':0x00fc, 'v1':0x00fd, 'v2':0x00fe, 'v3':0x00ff, 'com_cipher_key':0x4213,
-	             'current_mode': 0x407b, 'channel_a_split_mode': 0x41f5, 'channel_b_split_mode': 0x41f6, 'current_random_mode': 0x4074}
+	             'current_mode': 0x407b, 'channel_a_split_mode': 0x41f5, 'channel_b_split_mode': 0x41f6, 'current_random_mode': 0x4074,
+	             'menu_state': 0x406d}
 
 	boxNetworkAddressAutoDetected = pyqtSignal(str)
 	commUpdated = pyqtSignal()
@@ -194,6 +195,9 @@ class BoxWorker(QObject):
 					pass
 
 				posOffset = 9 if len(text) < 8 else 8
+
+			if posOffset == 0:
+				self.box.poke(self.registers["menu_state"], [1])
 
 			for pos, char in enumerate(text):
 				self.box.poke(0x4180, [ord(char), pos+posOffset])
