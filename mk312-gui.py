@@ -111,7 +111,7 @@ class BoxWorker(QObject):
 			while(True):
 				data, addr = server.recvfrom(1024)
 				elapsed_ms = 1000 * (time.time() - t)
-				print("%f.2 (%.2fms) %s: %s (%s)" % (time.time(), elapsed_ms, addr[0], data, '.'.join(map(str, data))))
+				print("%.2f (%.2fms) %s: %s (%s)" % (time.time(), elapsed_ms, addr[0], data, '.'.join(map(str, data))))
 				if addr[1] == UDP_DISCOVERY_PORT:
 					hosts.add(addr[0])
 
