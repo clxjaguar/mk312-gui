@@ -187,6 +187,22 @@ class BoxWorker(QObject):
 				if i > 3:
 					break
 
+		def storeParamValue(name):
+			if type(self.registers[name]) == dict:
+				register = self.registers[name]['addr']
+				if 'bit' in self.registers[name]:
+					value = self.box.peek(register) & (1 << self.registers[name]['bit'])
+
+				elif 'offset' in self.registers[name]:
+					offset = self.registers[name]['offset']
+					value = self.box.peek(register) - offset
+			else:
+				register = self.registers[name]
+				value = self.box.peek(register)
+
+			self.paramsValues[name] = value
+			return value
+
 		def overWriteDisplay(text, posOffset=None):
 			if posOffset is None:
 				self.box.poke(0x4180, [0x64])
@@ -251,12 +267,12 @@ class BoxWorker(QObject):
 					self.state = self.CONNECTED
 					self.errorCounter = 0
 
-					self.storeParamValue("battery_voltage_boot")
+					storeParamValue("battery_voltage_boot")
 
-					v = self.storeParamValue("power_level_range")
+					v = storeParamValue("power_level_range")
 					self.updatePowerRangeLevel.emit(v)
 
-					usermodes = self.storeParamValue("user_modes_loaded")
+					usermodes = storeParamValue("user_modes_loaded")
 					for i in range (0,usermodes):
 						startmodule = self.box.peek(0x8018+i)
 						if (startmodule < 0xa0):
@@ -267,21 +283,21 @@ class BoxWorker(QObject):
 							programblockstart = 0x8100+programlookup
 						print("\tUser %d is module 0x%02x\t: 0x%04x (eeprom)"%(i+1,startmodule,programblockstart))
 
-					self.storeParamValue("box_version")
-					self.storeParamValue("v1")
-					self.storeParamValue("v2")
-					self.storeParamValue("v3")
-					self.potsOverrideUpdated.emit(self.storeParamValue('adc_disable'))
+					storeParamValue("box_version")
+					storeParamValue("v1")
+					storeParamValue("v2")
+					storeParamValue("v3")
+					self.potsOverrideUpdated.emit(storeParamValue('adc_disable'))
 
 
-					self.storeParamValue('advparam_ramp_level')
-					self.storeParamValue('advparam_ramp_time')
-					self.storeParamValue('advparam_depth')
-					self.storeParamValue('advparam_tempo')
-					self.storeParamValue('advparam_frequency')
-					self.storeParamValue('advparam_effect')
-					self.storeParamValue('advparam_width')
-					self.storeParamValue('advparam_pace')
+					storeParamValue('advparam_ramp_level')
+					storeParamValue('advparam_ramp_time')
+					storeParamValue('advparam_depth')
+					storeParamValue('advparam_tempo')
+					storeParamValue('advparam_frequency')
+					storeParamValue('advparam_effect')
+					storeParamValue('advparam_width')
+					storeParamValue('advparam_pace')
 					self.advancedParamsUpdated.emit()
 
 					self.statusUpdated.emit(1, "Connected and synchronised!")
@@ -311,26 +327,26 @@ class BoxWorker(QObject):
 					if len(self.displayMessagesToWrite):
 						overWriteDisplay(*self.displayMessagesToWrite.pop(0))
 
-					# ~ self.storeParamValue("current_sense") # ADC0
-					self.storeParamValue("multiadjust_scaled")
+					# ~ storeParamValue("current_sense") # ADC0
+					storeParamValue("multiadjust_scaled")
 
-					currentmode = self.storeParamValue("current_mode")
+					currentmode = storeParamValue("current_mode")
 					if currentmode != lastMode:
-						self.storeParamValue("multiadjust_min")
-						self.storeParamValue("multiadjust_max")
+						storeParamValue("multiadjust_min")
+						storeParamValue("multiadjust_max")
 
 						self.modeChanged.emit(currentmode)
 						lastMode = currentmode
 
-						v = self.storeParamValue("power_level_range")
+						v = storeParamValue("power_level_range")
 						self.updatePowerRangeLevel.emit(v)
 
 
 						if (currentmode == 0x7f):
-							self.storeParamValue("channel_a_split_mode")
-							self.storeParamValue("channel_b_split_mode")
+							storeParamValue("channel_a_split_mode")
+							storeParamValue("channel_b_split_mode")
 						if (currentmode == 0x80):
-							self.storeParamValue("current_random_mode")
+							storeParamValue("current_random_mode")
 							# ~ timeleft = self.box.peek(0x4075) - self.box.peek(0x406a)
 							# ~ if (timeleft<0):
 								# ~ timeleft+=256
@@ -338,24 +354,24 @@ class BoxWorker(QObject):
 						# ~ print("\tMode has been running\t: {0:#d} seconds".format(int((self.box.peek(0x4089)+self.box.peek(0x408a)*256)*1.048)))
 
 
-					self.storeParamValue("psu_voltage") # ADC2
-					self.storeParamValue("battery_voltage") # ADC3
+					storeParamValue("psu_voltage") # ADC2
+					storeParamValue("battery_voltage") # ADC3
 
-					self.storeParamValue("channel_a_level") # ADC4
-					self.storeParamValue("channel_b_level") # ADC5
+					storeParamValue("channel_a_level") # ADC4
+					storeParamValue("channel_b_level") # ADC5
 
 
 					self.commUpdated.emit()
 
-					# ~ self.storeParamValue('advparam_ramp_level')
-					# ~ self.storeParamValue('advparam_ramp_time')
-					# ~ self.storeParamValue('advparam_depth')
-					# ~ self.storeParamValue('advparam_tempo')
-					# ~ self.storeParamValue('advparam_frequency')
-					# ~ self.storeParamValue('advparam_effect')
-					# ~ self.storeParamValue('advparam_width')
-					# ~ self.storeParamValue('advparam_pace')
-					# ~ self.advancedParamsUpdated.emit()
+					# ~ storeParamValue('advparam_ramp_level')
+					# ~ storeParamValue('advparam_ramp_time')
+					# ~ storeParamValue('advparam_depth')
+					# ~ storeParamValue('advparam_tempo')
+					# ~ storeParamValue('advparam_frequency')
+					# ~ storeParamValue('advparam_effect')
+					# ~ storeParamValue('advparam_width')
+					# ~ storeParamValue('advparam_pace')
+					# ~ advancedParamsUpdated.emit()
 
 					self.errorCounter = 0
 				except Exception as e:
@@ -376,22 +392,6 @@ class BoxWorker(QObject):
 		except:
 			pass
 		print("BoxWorker ended")
-
-	def storeParamValue(self, name):
-		if type(self.registers[name]) == dict:
-			register = self.registers[name]['addr']
-			if 'bit' in self.registers[name]:
-				value = self.box.peek(register) & (1 << self.registers[name]['bit'])
-
-			elif 'offset' in self.registers[name]:
-				offset = self.registers[name]['offset']
-				value = self.box.peek(register) - offset
-		else:
-			register = self.registers[name]
-			value = self.box.peek(register)
-
-		self.paramsValues[name] = value
-		return value
 
 	def overWriteDisplay(self, text, posOffset=None, line=None):
 		if posOffset is None and line is not None:
