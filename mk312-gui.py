@@ -486,7 +486,7 @@ class MK312():
 		data, checksum = data[:-1], data[-1]
 		computedChecksum = sum(data) % 256
 		if computedChecksum != checksum:
-			raise Exception("Checksum mismatch! (%02x != %02x)" % (computedChecksum, checksum))
+			raise Exception("Checksum mismatch! (%s %02x, computed %02x)" % (data.hex(), checksum, computedChecksum))
 		return data
 
 	def peek(self, address):
