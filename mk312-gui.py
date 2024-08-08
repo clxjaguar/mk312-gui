@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 # https://github.com/clxjaguar/mk312-gui
 
-VERSION = '0.14'
-import sys, re, time, socket, serial, serial.tools.list_ports
+VERSION = '0.15'
+import sys, re, time, socket, serial, serial.tools.list_ports, textwrap
 
 try:
 	# sudo apt-get install python3-pyqt5
@@ -1030,16 +1030,18 @@ class GUI(QWidget):
 				self.sliders = {}
 				# ~ self.setSizeHint()
 
-				for i, p in enumerate([("Ramp Level", 'advparam_ramp_level', 50, 100, 70),
-				                       ("Ramp Time", 'advparam_ramp_time', 1, 120, 20),
-				                       ("Depth", 'advparam_depth', 10, 100, 60),
-				                       ("Tempo", 'advparam_tempo', 1, 100, 1),
-				                       ("Frequency", 'advparam_frequency', 15, 250, 150),
-				                       ("Effect", 'advparam_effect', 1, 100, 5),
-				                       ("Width", 'advparam_width', 70, 250, 130),
-				                       ("Pace", 'advparam_pace', 1, 100, 5)]):
+				for i, p in enumerate([
+				                       ("Ramp Level", 'advparam_ramp_level', 50, 100, 70, "Starting level for the Ramp function. The factory default is 70% and the range is 50% to 100%. Setting it at 50% means the output intensity will double from the beginning to the end of the ramp. This is more of an increase than many people are comfortable with. Setting it to 100% effectively disables the Ramp function."),
+				                       ("Ramp Time", 'advparam_ramp_time', 1, 120, 20, "Time in seconds between each ramp increment. The factory setting is 20 seconds. The range is 1 to 120 seconds per increment. With the factory settings, there are 30 steps between 70% and 100%. At 20 seconds per step, that’s 600 seconds total time (10 minutes). If you set RampTime to 120 seconds, it would be 3600 seconds (1 hour)."),
+				                       ("Depth", 'advparam_depth', 10, 100, 60, "This adjusts the modulation depth of some of the modes. For example, on Stroke, it alters the range of the stroking effect. The factory setting is 50 and the range is 10 to 100."),
+				                       ("Tempo", 'advparam_tempo', 1, 100, 1, "This adjusts the intensity modulation speed and other rate parameters of some modes. The factory setting is 10 and the range is 1 to 100."),
+				                       ("Frequency", 'advparam_frequency', 15, 250, 150, "This adjusts the frequency of the pulses. Higher settings feel smoother and have more energy. The default is 150Hz."),
+				                       ("Effect", 'advparam_effect', 1, 100, 5, "This adjusts the rate of various frequency effects. The factory setting is 5 and the range is 1 - 100."),
+				                       ("Width", 'advparam_width', 70, 250, 130, "This adjusts the pulse width. Pulse width affects the perceived intensity and 'feel' of the stimulation. Wider pulse widths feel more intense and narrow pulse widths feel softer. The value indicates the width of each half of the bipolar pulse in microseconds. In general, use smaller values for pleasure e-stim and higher values for BDSM e-stim. The factory setting is 130 and the range is 70 - 250 microseconds. Note: Altering the factory pulse width will cause some modes (including some in Random1) to feel dramatically more intense than others. Extra care must then be used when changing modes."),
+				                       ("Pace", 'advparam_pace', 1, 100, 5, "This adjusts the rate or interval of certain modes.")
+				                      ]):
 
-					labelName, paramName, mini, maxi, default = p
+					labelName, paramName, mini, maxi, default, tipText = p
 					slider = QSlider(Qt.Horizontal)
 					slider.paramName = paramName
 					if paramName == 'advparam_ramp_level':
@@ -1052,7 +1054,10 @@ class GUI(QWidget):
 					slider.setValue(int(default/slider.granularity))
 					slider.valueChanged.connect(self.valueChanged)
 					slider.valueLabel = QLabel(str(slider.value()*slider.granularity))
-					layout.addWidget(QLabel(labelName), i, 0)
+					slider.setToolTip("\n".join(textwrap.wrap(tipText)))
+					l = QLabel(labelName)
+					l.setToolTip(slider.toolTip())
+					layout.addWidget(l, i, 0)
 					layout.addWidget(slider, i, 2)
 					layout.addWidget(slider.valueLabel, i, 3)
 					self.sliders[paramName] = slider
