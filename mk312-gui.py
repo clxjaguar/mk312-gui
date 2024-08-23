@@ -404,6 +404,7 @@ class MK312():
 	def __init__(self, link, encrypted=True):
 		self.link = link                   # the Communication layer to the device
 		self.encryptionEnabled = encrypted # do we use the Encryptionless method or not
+		self.needHandshake = True
 
 		self._flushInputBuffer()
 		self._handshake()
@@ -434,6 +435,7 @@ class MK312():
 			if (len(reply) == 1 and reply[0] == 0x07):
 				ok+=1
 				if ok > 2:
+					self.needHandshake = False
 					break
 				continue
 			ok=0
@@ -481,21 +483,29 @@ class MK312():
 			data+= self.link.recv(length-len(data))
 
 		if len(data) < length:
+			self.needHandshake = True
 			raise Exception("Unable to receive all the requested bytes (%d < %d)" % (len(data), length))
 
 		data, checksum = data[:-1], data[-1]
 		computedChecksum = sum(data) % 256
 		if computedChecksum != checksum:
+			self.needHandshake = True
 			raise Exception("Checksum mismatch! (%s %02x, computed %02x)" % (data.hex(), checksum, computedChecksum))
 		return data
 
 	def peek(self, address):
+		if self.needHandshake:
+			self._handshake()
+
 		self._write([0x3c, address >> 8, address & 0xff])
 		data = self._read(3)
 		return data[1]
 
 	def poke(self, startAddress, data):
 		if not self.link: return
+
+		if self.needHandshake:
+			self._handshake()
 
 		if type(data) is not list:
 			raise TypeError("data must be a list")
