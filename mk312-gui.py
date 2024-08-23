@@ -1140,14 +1140,14 @@ class GUI(QWidget):
 		else:
 			color = 'none'
 		self.errorLabel.setStyleSheet("background-color: "+color+"; border: 1px solid #707070;")
-
-		if level <= 1: # This had been added. Unsure about this.
-			self.errorLabelHideTimer.start(2000)
-		else:
-			self.errorLabelHideTimer.stop()
+		self.lastErrorLevel = level
+		self.errorLabelHideTimer.start(2000)
 		print(time.strftime("%Y-%m-%d %H:%M:%S")+" " + text)
 
 	def hideErrorLabelTimerTimeout(self):
+		if self.lastErrorLevel >= 2: # In case of serious error, do not let it disappear in case something stale
+			return
+
 		self.errorLabelHideTimer.stop()
 		self.errorLabel.setText("")
 		self.errorLabel.hide()
@@ -1155,6 +1155,7 @@ class GUI(QWidget):
 
 	def boxCommUpdated(self):
 		# ~ print(boxWorker.paramsValues)
+		self.lastErrorLevel = 0
 		self.channels[0].update(boxWorker.getValue('channel_a_level'))
 		self.channels[1].update(boxWorker.getValue('channel_b_level'))
 		self.multiAdjust.update(boxWorker.getValue('multiadjust_scaled'), boxWorker.getValue('multiadjust_min'), boxWorker.getValue('multiadjust_max'))
