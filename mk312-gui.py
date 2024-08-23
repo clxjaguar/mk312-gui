@@ -382,7 +382,7 @@ class BoxWorker(QObject):
 							 # important or the MK312 object is not deleted
 							self.box.close()
 							self.box = None
-						except Exceptiona as e:
+						except Exception as e:
 							print(str(e))
 						self.state = self.OPENING
 
