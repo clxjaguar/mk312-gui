@@ -1127,6 +1127,22 @@ class GUI(QWidget):
 
 		mkQLabel("Power Level", layout2, Qt.AlignCenter)
 		self.powerRangeLevel = QComboBox()
+		def customWheelEvent(e):
+			try:
+				if self.channels[0].dial.value() == 0 and self.channels[1].dial.value() == 0:
+					e.accept()
+					QComboBox.wheelEvent(self.powerRangeLevel, e)
+				elif e.pixelDelta().y() > 0:
+					e.accept()
+					QComboBox.wheelEvent(self.powerRangeLevel, e)
+				else:
+					e.ignore()
+					self.powerRangeLevel.setStyleSheet("background-color: #ffa0a0;")
+					QTimer.singleShot(100, lambda: self.powerRangeLevel.setStyleSheet(""))
+			except:
+				pass
+
+		self.powerRangeLevel.wheelEvent = customWheelEvent
 		self.powerRangeLevel.insertItems(0, boxWorker.powerlevels.values())
 		self.powerRangeLevel.currentTextChanged.connect(self.powerRangeLevelChanged)
 		layout2.addWidget(self.powerRangeLevel)
