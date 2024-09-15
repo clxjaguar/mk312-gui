@@ -132,19 +132,20 @@ class BoxWorker(QObject):
 	def worker(self):
 		def writeRegistersToBox():
 			for i, name in enumerate(self.registersToWrite.copy()):
+				requestedValue = self.registersToWrite[name]
 				if type(self.registers[name]) == dict:
 					addr = self.registers[name]['addr']
 					if 'bit' in self.registers[name]:
 						bit = self.registers[name]['bit']
 						value = self.box.peek(addr)
 						value&= ~(1 << bit)
-						if self.registersToWrite[name]:
+						if requestedValue:
 							value|= 1 << bit
 					else:
-						value = self.registersToWrite[name]
+						value = requestedValue
 				else:
 					addr = self.registers[name]
-					value = self.registersToWrite[name]
+					value = requestedValue
 
 				print(name, addr, value)
 				if name == 'current_mode' and self.modes[value] == "None":
@@ -183,7 +184,9 @@ class BoxWorker(QObject):
 					self.box.poke(0x4070, [0x20])
 					time.sleep(0.018)
 
-				del self.registersToWrite[name]
+				if requestedValue == self.registersToWrite[name]:
+					del self.registersToWrite[name]
+
 				if i > 3:
 					break
 
