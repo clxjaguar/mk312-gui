@@ -843,7 +843,9 @@ class GUI(QWidget):
 
 				channelsLayout.addWidget(self)
 				layout = QVBoxLayout(self)
+				layout.expandingDirections = lambda: Qt.Vertical
 				layout.setSpacing(5)
+				layout.addStretch()
 
 				class LevelBar(QProgressBar):
 					def __init__(self):
@@ -1000,6 +1002,7 @@ class GUI(QWidget):
 				channelsLayout.addWidget(self)
 				layout = QVBoxLayout(self)
 				layout.setSpacing(0)
+				layout.addStretch()
 				self.valueLabel = mkQLabel("--", layout, Qt.AlignCenter | Qt.AlignTop, 'value')
 				self.dial = QDial()
 				self.dial.setNotchTarget(9)
