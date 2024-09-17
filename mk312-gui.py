@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # https://github.com/clxjaguar/mk312-gui
 
-VERSION = '0.15'
+VERSION = '0.16'
 import sys, re, time, socket, serial, serial.tools.list_ports, textwrap
 
 try:
@@ -51,7 +51,9 @@ class BoxWorker(QObject):
 	             'user_modes_loaded': {'addr': 0x41f3, 'offset': 0x87}, 'adc_disable': {'addr': 0x400f, 'bit': 0},
 	             'box_version':0x00fc, 'v1':0x00fd, 'v2':0x00fe, 'v3':0x00ff, 'com_cipher_key':0x4213,
 	             'current_mode': 0x407b, 'channel_a_split_mode': 0x41f5, 'channel_b_split_mode': 0x41f6, 'current_random_mode': 0x4074,
-	             'menu_state': 0x406d}
+	             'menu_state': 0x406d, 'execute_command': 0x4070, 'execute_command2': 0x4071}
+
+	execute_commands = {'start_ramp': 0x21}
 
 	boxNetworkAddressAutoDetected = pyqtSignal(str)
 	commUpdated = pyqtSignal()
@@ -95,6 +97,9 @@ class BoxWorker(QObject):
 			self.statusUpdated.emit(2, "Register '%s' unknown (bug?)" % (name))
 		else:
 			self.registersToWrite[name] = value
+
+	def rampStart(self):
+		self.setValue('execute_command', self.execute_commands['start_ramp'])
 
 	def discover(self, timeout=0.5):
 		UDP_DISCOVERY_PORT = 8842
@@ -1043,12 +1048,12 @@ class GUI(QWidget):
 				QGroupBox.__init__(self)
 				channelsLayout.addWidget(self)
 				layout = QGridLayout(self)
-				layout.setSpacing(0)
-				self.sliders = {}
-				# ~ self.setSizeHint()
+				layout.setSpacing(2)
+				self.setStyleSheet("QSpinBox { margin-top: -1px; margin-bottom: -1px; margin-right: 0px; }")
+				self.controlWidgets = {}
 
 				for i, p in enumerate([
-				                       ("Ramp Level", 'advparam_ramp_level', 50, 100, 70, "Starting level for the Ramp function. The factory default is 70% and the range is 50% to 100%. Setting it at 50% means the output intensity will double from the beginning to the end of the ramp. This is more of an increase than many people are comfortable with. Setting it to 100% effectively disables the Ramp function."),
+				                       ("Ramp Level", 'advparam_ramp_level', 0, 100, 70, "Starting level for the Ramp function. The factory default is 70% and the range is 50% to 100%. Setting it at 50% means the output intensity will double from the beginning to the end of the ramp. This is more of an increase than many people are comfortable with. Setting it to 100% effectively disables the Ramp function."),
 				                       ("Ramp Time", 'advparam_ramp_time', 1, 120, 20, "Time in seconds between each ramp increment. The factory setting is 20 seconds. The range is 1 to 120 seconds per increment. With the factory settings, there are 30 steps between 70% and 100%. At 20 seconds per step, that’s 600 seconds total time (10 minutes). If you set RampTime to 120 seconds, it would be 3600 seconds (1 hour)."),
 				                       ("Depth", 'advparam_depth', 10, 100, 60, "This adjusts the modulation depth of some of the modes. For example, on Stroke, it alters the range of the stroking effect. The factory setting is 50 and the range is 10 to 100."),
 				                       ("Tempo", 'advparam_tempo', 1, 100, 1, "This adjusts the intensity modulation speed and other rate parameters of some modes. The factory setting is 10 and the range is 1 to 100."),
@@ -1059,40 +1064,71 @@ class GUI(QWidget):
 				                      ]):
 
 					labelName, paramName, mini, maxi, default, tipText = p
-					slider = QSlider(Qt.Horizontal)
-					slider.paramName = paramName
+
 					if paramName == 'advparam_ramp_level':
-						slider.granularity = 10; slider.paramOffset = 155
+						controlWidget = QSpinBox()
+						controlWidget.paramOffset = 155
+						controlWidget.setSingleStep(10)
+						controlWidget.setSuffix(" %")
+					elif paramName == 'advparam_ramp_time':
+						controlWidget = QSpinBox()
+						controlWidget.paramOffset = 0
+						controlWidget.setSuffix(" s")
 					else:
-						slider.granularity = 1;  slider.paramOffset = 0
+						controlWidget = QSlider(Qt.Horizontal)
+						controlWidget.paramOffset = 0
+						if paramName == 'advparam_depth':
+							controlWidget.paramOffset = 155
+							controlWidget.setSingleStep(10)
+					controlWidget.paramName = paramName
 
-					slider.setMinimumWidth(150)
-					slider.setRange(int(mini/slider.granularity), int(maxi/slider.granularity))
-					slider.setValue(int(default/slider.granularity))
-					slider.valueChanged.connect(self.valueChanged)
-					slider.valueLabel = QLabel(str(slider.value()*slider.granularity))
-					slider.setToolTip("\n".join(textwrap.wrap(tipText)))
+					controlWidget.setMinimumWidth(50)
+					controlWidget.height = controlWidget.sizeHint().height()
+					controlWidget.sizeHint = lambda: QSize(150, controlWidget.height)
+					controlWidget.setRange(mini, maxi)
+					controlWidget.setValue(default)
+					controlWidget.valueChanged.connect(self.valueChanged)
+					controlWidget.valueLabel = QLabel(str(controlWidget.value()))
+					controlWidget.setToolTip("\n".join(textwrap.wrap(tipText)))
 					l = QLabel(labelName)
-					l.setToolTip(slider.toolTip())
+					l.setToolTip(controlWidget.toolTip())
 					layout.addWidget(l, i, 0)
-					layout.addWidget(slider, i, 2)
-					layout.addWidget(slider.valueLabel, i, 3)
-					self.sliders[paramName] = slider
+					if type(controlWidget) is QSpinBox:
+						layout.addWidget(controlWidget, i, 2)
+						controlWidget.adjustSize()
+					else:
+						layout.addWidget(controlWidget, i, 2, 1, 2)
+						layout.addWidget(controlWidget.valueLabel, i, 4)
+					self.controlWidgets[paramName] = controlWidget
 
-			def valueChanged(self, i):
-				# ~ print(self.sender().paramName, i, self.sender().valueLabel)
-				i*=self.sender().granularity
-				self.sender().valueLabel.setText("%d" % i)
-				boxWorker.setValue(self.sender().paramName, i+self.sender().paramOffset)
+				self.rampStartBtn = QToolButton()
+				self.rampStartBtn.setText("Ramp\nStart")
+				self.rampStartBtn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+				self.rampStartBtn.clicked.connect(lambda: boxWorker.rampStart())
+				layout.addWidget(self.rampStartBtn, 0, 3, 2, 2)
+
+				layout.setColumnStretch(1, 1)
+				layout.setColumnStretch(2, 100)
+				layout.setColumnStretch(3, 70)
+				layout.setColumnStretch(4, 1)
+
+			def valueChanged(self, value):
+				if self.sender().paramName == 'advparam_ramp_level':
+					self.rampStartBtn.setEnabled(True if value < 100 else False)
+				self.sender().valueLabel.setFixedWidth(self.sender().valueLabel.width())
+				self.sender().valueLabel.setText("%d" % value)
+				boxWorker.setValue(self.sender().paramName, value+self.sender().paramOffset)
 
 			def paramsUpdate(self):
-				for paramName in self.sliders:
-					slider = self.sliders[paramName]
-					value = boxWorker.getValue(paramName) - slider.paramOffset
-					slider.blockSignals(True)
-					slider.valueLabel.setText("%d" % value)
-					slider.setValue(int(value / slider.granularity))
-					slider.blockSignals(False)
+				for paramName in self.controlWidgets:
+					controlWidget = self.controlWidgets[paramName]
+					value = boxWorker.getValue(paramName) - controlWidget.paramOffset
+					controlWidget.blockSignals(True)
+					controlWidget.valueLabel.setText("%d" % value)
+					controlWidget.setValue(value)
+					controlWidget.blockSignals(False)
+					if paramName == 'advparam_ramp_level':
+						self.rampStartBtn.setEnabled(True if value < 100 else False)
 
 		self.channels = (ChannelWidget("A Level", 'channel_a_level'), ChannelWidget("B Level", 'channel_b_level'))
 		self.multiAdjust = MultiAdjustWidget('multiadjust_scaled')
