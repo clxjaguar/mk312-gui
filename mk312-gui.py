@@ -598,15 +598,15 @@ class RegistersView(QTableWidget):
 		self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 		self.setColumnCount(2)
 		self.setHorizontalHeaderLabels(("Name", "Value"))
-		self.setColumnWidth(0, 200)
-		self.setColumnWidth(1, 80)
-		# ~ self.setStretchLastSection(True)
+		self.horizontalHeader().setStretchLastSection(True)
+		self.horizontalHeader().setMinimumSectionSize(50)
+		self.horizontalHeader().resizeSection(1, 30)
+		self.setMinimumWidth(200)
+		self.setColumnWidth(0, 190)
+		self.resize(270, 600)
 
 		self.setWindowTitle(u"Box Registers")
 		self.refresh()
-		w = self.verticalHeader().width() + self.horizontalHeader().length() + self.frameWidth()*2 + self.verticalScrollBar().sizeHint().width()
-		self.setMinimumWidth(w)
-		self.resize(w, 600)
 
 		self.show()
 		self.timer = QTimer()
@@ -617,7 +617,6 @@ class RegistersView(QTableWidget):
 		# ~ parameters = {'battery_voltage_boot': 210, 'power_level_range': 2, 'user_modes_loaded': 0, 'box_version': 167, 'v1': 169, 'v2': 255, 'v3': 35, 'adc_disable': 0, 'advparam_ramp_level': 225, 'advparam_ramp_time': 20, 'advparam_depth': 215, 'advparam_tempo': 1, 'advparam_frequency': 25, 'advparam_effect': 5, 'advparam_width': 130, 'advparam_pace': 5, 'multiadjust_scaled': 229, 'current_mode': 141, 'multiadjust_min': 15, 'multiadjust_max': 255, 'psu_voltage': 125, 'battery_voltage': 165, 'channel_a_level': 0, 'channel_b_level': 0}
 
 		parameters = boxWorker.paramsValues.copy()
-		# ~ print(parameters)
 		if len(parameters) != self.rowCount():
 			self.setRowCount(len(parameters))
 			for i, parameterName in enumerate(parameters):
