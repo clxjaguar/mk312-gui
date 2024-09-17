@@ -770,6 +770,8 @@ class GUI(QWidget):
 	def initUI(self):
 		self.setStyleSheet("\
 			QLabel#value { font-size: 24pt; } \
+			QProgressBar#battery { text-align: center; background-color: rgba(255, 255, 255, 0); margin-top: 1px; margin-bottom: 1px; border: 1px solid grey; border-radius: 4px; } \
+			QProgressBar#battery::chunk { background-color: #90c0ff; border-radius: 2px; margin: 0px; } \
 			QProgressBar#channel { font-size: 24px; background-color: transparent; border: 0px solid black; text-align: center; } \
 			QLabel#label { font-size: 12pt; } \
 			QPushButton::checked#green { color: #000000; background: #00ff00; } \
@@ -1154,6 +1156,11 @@ class GUI(QWidget):
 		layout2.addWidget(self.powerRangeLevel)
 
 		self.batteryBar = QProgressBar()
+		self.batteryBar.sizeHint = lambda: QSize(10, 10)
+		self.batteryBar.setOrientation(Qt.Vertical)
+		self.batteryBar.setObjectName("battery")
+		self.batteryBar.setToolTip("Battery voltage")
+		self.batteryBar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 		layout2.addWidget(self.batteryBar)
 
 		layout.addLayout(layout2)
@@ -1200,15 +1207,18 @@ class GUI(QWidget):
 		# ~ infos+="%s: %.4fV\n" % ('PSU', psuVoltage)
 		# ~ infos+="%s: %d"   % ('current_sense', boxWorker.getValue('current_sense'))
 
-		self.batteryBar.setFormat("%.1fV" % round(batteryVoltage, 1))
+		self.batteryBar.setFormat("%.1f V" % round(batteryVoltage, 1))
 		batteryBarValue = int((batteryVoltage - 11.5) * 57.14)
 		if batteryBarValue > 100: batteryBarValue = 100
-		elif batteryBarValue < 0: batteryBarValue = 0
+		elif batteryBarValue < 20:
+			if batteryBarValue < 0: batteryBarValue = 0
+			self.batteryBar.setStyleSheet("::chunk { background-color: #ff5050; } ")
 		self.batteryBar.setValue(batteryBarValue)
 
 	def boxCommClosed(self):
 		self.batteryBar.setFormat("")
 		self.batteryBar.setValue(0)
+		self.batteryBar.setStyleSheet("")
 		for ch in self.channels[0], self.channels[1]:
 			ch.computeValue(0)
 			ch.clear()
