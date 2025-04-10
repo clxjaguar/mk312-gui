@@ -69,7 +69,6 @@ class BoxWorker(QObject):
 		self.box = None
 		self.state = self.CLOSED
 		self.portName = None
-		self.socatRedirector = None
 
 		self.thread = QThread()
 		self.thread.setObjectName("BoxWorker thread")
