@@ -264,10 +264,10 @@ class BoxWorker(QObject):
 				self.registersToWrite = {}
 				self.displayMessagesToWrite = []
 				try:
-					if re.search('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]+$', self.portName):
+					if re.search(r'^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]+$', self.portName):
 						host, port = self.portName.split(':')
 						self.box = MK312(NetworkLink(host, port=int(port)), encrypted=True)
-					elif re.search('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', self.portName):
+					elif re.search(r'^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', self.portName):
 						self.box = MK312(NetworkLink(self.portName, port=8843), encrypted=False)
 					else:
 						self.box = MK312(SerialLink(self.portName))
